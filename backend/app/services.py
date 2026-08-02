@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from . import events as ev
 from . import prompts
+from .engines.risk import labels_for
 from .models import (CallSession, Dispatch, Driver, Emergency, Facility,
                      NurseShift, Patient, PatientState, User)
 from .telephony import service as tel
@@ -47,7 +48,7 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
 
     cho = db.get(User, patient.assigned_cho_id) if patient.assigned_cho_id else None
     if cho:
-        reason_text = ", ".join(reason_codes[:2]) if reason_codes else "danger signs"
+        reason_text = labels_for(reason_codes) or "danger signs"
         body = "RED: {}, {}. {}. Open Mabia to confirm.".format(
             patient.name, patient.community, reason_text)
         tel.send_sms(db, cho.phone, body, kind="red_alert", patient_id=patient.id)
@@ -187,7 +188,7 @@ def notify_facility(db: Session, emergency: Emergency) -> None:
     emergency.facility_notified_at = dt.datetime.utcnow()
     db.flush()
     if facility and facility.phone:
-        reasons = ", ".join(emergency.reason_codes[:2]) if emergency.reason_codes else "emergency"
+        reasons = labels_for(emergency.reason_codes) or "emergency"
         tel.send_sms(db, facility.phone,
                      "Mabia: incoming from {} — {}. {}. Prepare now.".format(
                          patient.community, patient.name, reasons),

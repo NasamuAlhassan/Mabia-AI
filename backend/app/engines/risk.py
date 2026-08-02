@@ -179,3 +179,30 @@ def classify(snapshot, patient=None) -> Verdict:
             "A RED stays RED until a health worker records the outcome"))
 
     return Verdict(level, reasons)
+
+
+# Reason codes are what the engine stores; these are what a person reads. Kept
+# here so the SMS a CHO gets at 2am says "Bleeding" and not "sign.bleeding".
+_EXTRA_LABELS = {
+    "muac.mother_low": "Mother's MUAC below 23 cm",
+    "muac.child_moderate": "Child MUAC below 12.5 cm",
+    "muac.child_severe": "Child MUAC below 11.5 cm",
+    "diet.persistently_low": "Diet low twice running",
+    "ifa.not_adherent": "Not taking iron tablets",
+    "contact.unreachable": "Unreachable three times",
+    "access.remote": "Far from care",
+    "emergency.open": "Emergency still open",
+    "hotline.nurse_unreachable": "Could not reach a nurse",
+}
+
+
+def label_for(code: str) -> str:
+    if code.startswith("sign."):
+        key = code[5:]
+        return RED_SIGNS.get(key) or AMBER_SIGNS.get(key) or key.replace("_", " ")
+    return _EXTRA_LABELS.get(code, code.replace(".", " ").replace("_", " "))
+
+
+def labels_for(codes, limit: int = 2) -> str:
+    readable = [label_for(c) for c in (codes or [])[:limit]]
+    return ", ".join(readable)

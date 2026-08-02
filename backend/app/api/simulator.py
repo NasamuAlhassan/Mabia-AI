@@ -22,11 +22,22 @@ def handsets(db: Session = Depends(get_db), user: User = Depends(current_user)):
     rows = []
     for session in sim.pending_handsets(db):
         patient = db.get(Patient, session.patient_id) if session.patient_id else None
+        # Whose handset is this? For a dispatch it is the driver's, not the
+        # patient's -- showing her name on his phone was confusing.
+        who = patient.name if patient else session.phone
+        if session.purpose == "driver" and session.driver_id:
+            from ..models import Driver
+            driver = db.get(Driver, session.driver_id)
+            if driver:
+                who = "{} (driver)".format(driver.name)
+        elif session.purpose == "nurse":
+            who = "{} (nurse)".format(session.phone)
         rows.append({
             "session_id": session.id, "phone": session.phone,
             "purpose": session.purpose, "ringing": bool(session.ringing),
             "state": session.state, "language": session.language,
-            "who": patient.name if patient else session.phone,
+            "who": who,
+            "about": patient.name if patient else None,
             "transcript": session.transcript or [],
             "started_at": session.started_at})
     return {"handsets": rows}

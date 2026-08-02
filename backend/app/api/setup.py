@@ -24,19 +24,22 @@ class SettingsIn(BaseModel):
 
 
 @router.get("")
-def read_settings(db: Session = Depends(get_db)):
+def read_settings(db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
     return {"fields": store.public_view(db), "readiness": store.readiness(db)}
 
 
 @router.put("")
-def write_settings(body: SettingsIn, db: Session = Depends(get_db)):
+def write_settings(body: SettingsIn, db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
     store.set_many(db, body.values)
     db.commit()
     return {"fields": store.public_view(db), "readiness": store.readiness(db)}
 
 
 @router.post("/test-call")
-def do_test_call(db: Session = Depends(get_db)):
+def do_test_call(db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
     """The fifteen-minute check: does a real handset actually ring?"""
     session, result = tel.test_call(db)
     db.commit()
@@ -47,7 +50,8 @@ def do_test_call(db: Session = Depends(get_db)):
 
 
 @router.post("/test-sms")
-def do_test_sms(db: Session = Depends(get_db)):
+def do_test_sms(db: Session = Depends(get_db),
+                user: User = Depends(current_user)):
     message, result = tel.test_sms(db)
     db.commit()
     return {"ok": result.ok, "error": result.error,

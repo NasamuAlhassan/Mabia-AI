@@ -260,7 +260,8 @@ def _ussd_screen(db: Session, user: User, steps) -> str:
             patient, state = rows[int(steps[1]) - 1]
         except (ValueError, IndexError):
             return "END Not a valid choice."
-        reasons = ", ".join((state.reason_codes or [])[:2]) or "no reasons recorded"
+        from ..engines.risk import labels_for
+        reasons = labels_for(state.reason_codes) or "no reasons recorded"
         return "END {}: {}. Call {}.".format(patient.name[:16], reasons[:90],
                                              patient.phone)[:180]
 

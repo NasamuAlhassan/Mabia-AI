@@ -210,6 +210,26 @@ FOODS = [
 FOODS_BY_KEY = {f["key"]: f for f in FOODS}
 
 
+# Foods whose price genuinely moves. The file's own opening paragraph says the
+# lean season means "stocks down, prices up", and the first version then priced
+# everything identically in all twelve months. Stored staples are what a
+# household sells or eats first, so they are the ones that stop being cheap.
+LEAN_PRICE_SHIFT = {
+    "maize": "medium", "millet": "medium", "sorghum": "medium",
+    "cowpea": "medium", "bambara": "medium", "groundnut": "medium",
+    "soybean": "medium", "yam": "medium",
+    "eggs": "high", "fresh_fish": "high", "milk_fresh": "high",
+    "milk_fermented": "high", "tomato": "high",
+}
+
+
+def tier_for(food, season: str) -> str:
+    """What this food costs *this* season, not on average."""
+    if season == "lean":
+        return LEAN_PRICE_SHIFT.get(food["key"], food["tier"])
+    return food["tier"]
+
+
 def season_for(month: int) -> str:
     if month in LEAN_MONTHS:
         return "lean"

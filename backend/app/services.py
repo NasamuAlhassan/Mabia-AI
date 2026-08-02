@@ -34,6 +34,28 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
                               Emergency.status.notin_(["closed", "cancelled"]))
                       .first())
     if open_already:
+        # She already has an emergency open -- but she has just reported
+        # something new. Returning silently here meant a woman who reported
+        # bleeding on a follow-up call generated no alert at all, because an
+        # open RED forces every later classification to RED. Merge the new
+        # reasons in and tell the CHO what changed.
+        known = set(open_already.reason_codes or [])
+        fresh = [c for c in reason_codes if c not in known and c != "emergency.open"]
+        if fresh:
+            open_already.reason_codes = list(known | set(fresh))
+            db.flush()
+            ev.record(db, patient_id=patient.id, actor_id="system",
+                      event_type=ev.EMERGENCY_RAISED,
+                      payload={"emergency_id": open_already.id,
+                               "reasons": fresh, "escalation": True})
+            cho = (db.get(User, patient.assigned_cho_id)
+                   if patient.assigned_cho_id else None)
+            if cho:
+                tel.send_sms(db, cho.phone,
+                             "WORSE: {}, {}. Now also {}.".format(
+                                 patient.name, patient.community,
+                                 labels_for(fresh)),
+                             kind="red_alert", patient_id=patient.id)
         return open_already
 
     emergency = Emergency(patient_id=patient.id, reason_codes=reason_codes,
@@ -115,12 +137,17 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
 def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
     """Ring the next driver in the cascade. Acceptance happens in the call."""
     patient = db.get(Patient, emergency.patient_id)
+    if patient is None:
+        emergency.status = "cancelled"
+        db.flush()
+        return None
     already = {d.driver_id for d in emergency.dispatches}
-    for position, driver in enumerate(rank_drivers(db, patient), start=1):
+    for driver in rank_drivers(db, patient):
         if driver.id in already:
             continue
+        already.add(driver.id)
         dispatch = Dispatch(emergency_id=emergency.id, driver_id=driver.id,
-                            position=len(already) + 1, status="offered")
+                            position=len(already), status="offered")
         db.add(dispatch)
         driver.offered_count = (driver.offered_count or 0) + 1
         emergency.status = "dispatching"
@@ -154,10 +181,24 @@ def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
 
 
 def driver_responded(db: Session, dispatch: Dispatch, accepted: bool) -> Dispatch:
+    # Two drivers both pressing 1 used to give one woman two vehicles and the
+    # facility two alerts, with the UI showing whichever the ORM returned first.
+    if dispatch.status != "offered":
+        return dispatch
+    emergency = db.get(Emergency, dispatch.emergency_id)
+    if accepted and emergency and any(
+            d.status == "accepted" for d in emergency.dispatches):
+        dispatch.status = "cancelled"
+        dispatch.responded_at = dt.datetime.utcnow()
+        db.flush()
+        return dispatch
+
     dispatch.status = "accepted" if accepted else "declined"
     dispatch.responded_at = dt.datetime.utcnow()
     driver = db.get(Driver, dispatch.driver_id)
-    emergency = db.get(Emergency, dispatch.emergency_id)
+    if driver is None:
+        db.flush()
+        return dispatch
     if accepted:
         driver.accepted_count = (driver.accepted_count or 0) + 1
         emergency.status = "transporting"
@@ -292,6 +333,48 @@ def build_contact_schedule(db: Session, patient: Patient) -> List:
         created.append(contact)
     db.flush()
     return created
+
+
+def run_due_contacts(db: Session, limit: int = 25) -> dict:
+    """Place the calls that are due. This is the loop the product is named for.
+
+    Called by a cron hitting POST /api/contacts/run-due. Deliberately an
+    endpoint rather than an in-process timer: a free web dyno sleeps, and a
+    thread that stops when the dyno idles is a scheduler that quietly does
+    nothing -- which is worse than not having one.
+    """
+    from .telephony import service as tel_service
+
+    placed, failed, skipped = [], [], []
+    for contact in due_contacts(db)[:limit]:
+        patient = db.get(Patient, contact.patient_id)
+        if patient is None or patient.status != "active" or not patient.consent:
+            contact.status = "missed"
+            skipped.append(contact.id)
+            continue
+
+        # Three tries across the day, then it stops being a phone problem and
+        # becomes a visit.
+        if (contact.attempts or 0) >= 3:
+            contact.status = "missed"
+            ev.record(db, patient_id=patient.id, actor_id="system",
+                      event_type=ev.CALL_ATTEMPTED,
+                      payload={"outcome": "unreachable", "contact": contact.id,
+                               "note": "three attempts — needs a physical visit"})
+            skipped.append(contact.id)
+            continue
+
+        contact.attempts = (contact.attempts or 0) + 1
+        session, result = tel_service.outreach_call(db, patient, contact)
+        if result.ok:
+            placed.append({"patient": patient.name, "week": contact.week,
+                           "session_id": session.id})
+        else:
+            failed.append({"patient": patient.name, "error": result.error})
+        db.flush()
+
+    return {"placed": placed, "failed": failed, "skipped": len(skipped),
+            "remaining": len(due_contacts(db))}
 
 
 def due_contacts(db: Session, on: Optional[dt.date] = None) -> List:

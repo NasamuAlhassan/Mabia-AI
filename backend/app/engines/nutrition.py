@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 from ..data.foods import (AFFORDABILITY_CEILING, CHILD_MINIMUM, FOODS,
                           MDDW_MINIMUM, TIERS, group_labels, groups_for,
-                          season_for)
+                          season_for, tier_for)
 
 MDD_W = "mdd_w"
 MDD_CHILD = "mdd_child"
@@ -99,8 +99,8 @@ def _available(food, month: int, region: str) -> bool:
     return True
 
 
-def _affordable(food, affordability: str) -> bool:
-    return food["tier"] in AFFORDABILITY_CEILING.get(affordability, TIERS)
+def _affordable(food, affordability: str, season: str) -> bool:
+    return tier_for(food, season) in AFFORDABILITY_CEILING.get(affordability, TIERS)
 
 
 # Not every gap is worth the same. A household short of flesh foods, dark
@@ -116,22 +116,16 @@ GROUP_PRIORITY = {
 }
 
 
-def _score_candidate(food, group: str, season: str, anaemia_focus: bool) -> float:
-    """Lower is better. Reachability first, then how much the gap matters."""
-    score = float(TIERS.index(food["tier"])) * 10.0
-
-    # In the lean season, a purchase is not advice. Push gathered and stored
-    # foods hard, because that is what is actually reachable in July.
+def _score_food(food, season: str, anaemia_focus: bool) -> float:
+    """Within a chosen gap: which food is easiest for THIS household, THIS month."""
+    score = float(TIERS.index(tier_for(food, season))) * 4.0
     source_penalty = {"gathered": 0, "stored": 1, "grown": 2, "purchased": 4}
     weight = 3.0 if season == "lean" else 1.0
     score += source_penalty.get(food["source"], 3) * weight
-
-    score -= GROUP_PRIORITY.get(group, 3) * 1.5
-
     if anaemia_focus and food["iron_rich"]:
-        score -= 8.0
-    if food["vitamin_c"] and anaemia_focus:
-        score -= 3.0
+        score -= 5.0
+    if anaemia_focus and food["vitamin_c"]:
+        score -= 2.0
     return score
 
 
@@ -144,6 +138,7 @@ def recommend(
     taboos: Optional[List[str]] = None,
     anaemia_focus: bool = False,
     exclude: Optional[List[str]] = None,
+    recent_groups: Optional[List[str]] = None,
 ) -> Optional[Recommendation]:
     """Pick one food that fills a gap and can actually be obtained."""
     month = month or dt.date.today().month
@@ -152,6 +147,7 @@ def recommend(
     # Do not repeat last call's advice; a caregiver who hears the same
     # sentence every fortnight stops hearing it.
     exclude = set(exclude or [])
+    recent_groups = set(recent_groups or [])
 
     if not recall.missing:
         return Recommendation(
@@ -160,35 +156,65 @@ def recommend(
             "her to keep it up.",
             "no gaps measured")
 
-    candidates = []
-    for group in recall.missing:
+    # Pick the GAP first, then the best food within it.
+    #
+    # Scoring every food across every gap together meant one free, year-round,
+    # iron-rich item won permanently: a woman missing seven food groups heard
+    # the same sentence at every contact, in every month of the year. Working
+    # through her gaps in order of clinical importance is both better advice and
+    # the thing that lets the season become visible at all.
+    def gap_options(group):
+        out = []
         for food in FOODS:
             if group not in _group_key_for(food, recall.instrument):
                 continue
             if not _available(food, month, region):
                 continue
-            if not _affordable(food, affordability):
+            if not _affordable(food, affordability, season):
                 continue
-            # A taboo is not argued with over an automated phone call. The food
-            # is dropped and the next best in the SAME group is offered instead.
+            # A taboo is not argued with on an automated call. The food is
+            # dropped and the next best in the SAME group is offered instead.
             if food["key"] in taboos or food["key"] in exclude:
                 continue
-            candidates.append((_score_candidate(food, group, season, anaemia_focus), group, food))
+            out.append((_score_food(food, season, anaemia_focus), food))
+        out.sort(key=lambda c: (c[0], c[1]["key"]))
+        return out
 
-    if not candidates:
+    ordered = sorted(recall.missing, key=lambda g: (-GROUP_PRIORITY.get(g, 3), g))
+    # Groups already covered by recent advice go to the back of the queue.
+    queue = ([g for g in ordered if g not in recent_groups]
+             + [g for g in ordered if g in recent_groups])
+
+    group, options = None, []
+    for candidate_group in queue:
+        options = gap_options(candidate_group)
+        if options:
+            group = candidate_group
+            break
+
+    if group is None:
+        # Nothing she can reach fills what is left. If she is already above the
+        # minimum that is a good result, not an escalation -- the remaining gaps
+        # are foods this household genuinely cannot buy, and telling her to buy
+        # eggs she cannot afford is how nutrition advice loses its audience.
+        if recall.meets_minimum:
+            return Recommendation(
+                None, None, season,
+                "Her diet is varied enough this time. Tell her so — the foods "
+                "still missing are ones this household cannot easily afford.",
+                "above the minimum; remaining gaps are out of reach")
         return Recommendation(
             None, None, season,
-            "No affordable local food fills the gap this month. This needs a "
+            "No affordable local food fills her gaps this month. This needs a "
             "home visit rather than a phone message.",
-            "no reachable food for the measured gap — escalated to the CHO")
+            "no reachable food for the measured gaps — escalated to the CHO")
 
-    candidates.sort(key=lambda c: (c[0], c[2]["key"]))
-    _, group, best = candidates[0]
-
-    alternatives = [f for s, g, f in candidates[1:] if g == group][:2]
+    best = options[0][1]
+    alternatives = [food for _, food in options[1:3]]
     labels = group_labels(recall.instrument)
-    reason = "{} missing; {} season in {}; household tier {}".format(
-        labels.get(group, group), season, region, affordability)
+    reason = "{} missing; {} season in {}; {} costs {} now".format(
+        labels.get(group, group), season, region, best["name"].lower(),
+        tier_for(best, season))
 
     tip = None
     if anaemia_focus:

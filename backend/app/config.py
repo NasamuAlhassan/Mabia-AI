@@ -7,7 +7,33 @@ handed to someone with no shell access and still be made to place a real call.
 See app.settings_store.
 """
 import os
+from pathlib import Path
 from typing import List
+
+
+def _load_dotenv() -> None:
+    """Read backend/.env into the environment.
+
+    Hand-rolled rather than pulling in python-dotenv: it is a dozen lines, and
+    one fewer dependency is one fewer thing that fails to install the morning of
+    a demo. Real environment variables always win, so a hosted deployment is
+    unaffected by a stray local file.
+    """
+    env_file = Path(__file__).resolve().parents[1] / ".env"
+    if not env_file.exists():
+        return
+    for raw in env_file.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
 
 
 class Settings:

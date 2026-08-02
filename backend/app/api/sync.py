@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .. import events as ev
 from ..db import get_db
-from ..models import Event, User
+from ..models import Event, Patient, User
 from ..security import current_user
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -35,13 +35,86 @@ class PushIn(BaseModel):
     events: List[EventIn]
 
 
+def _materialise_enrolment(db: Session, item, user: User) -> Optional[str]:
+    """Turn a queued offline enrolment into an actual patient.
+
+    Without this the CHO was told "queued on this device and will sync", the
+    badge cleared, the event was stored with no patient_id, and the woman never
+    existed. Losing a whole household while reporting success is the worst
+    failure this system could have, so it is handled explicitly.
+    """
+    import datetime as dt2
+
+    from .. import services
+
+    prior = db.get(Event, item.event_id)
+    if prior is not None and prior.patient_id:
+        return prior.patient_id
+
+    body = item.payload or {}
+    phone = (body.get("phone") or "").strip()
+    name = (body.get("name") or "").strip()
+    if not phone or not name:
+        return None
+
+    existing = (db.query(Patient)
+                  .filter(Patient.phone == phone,
+                          Patient.status == "active").first())
+    if existing is not None:
+        return existing.id
+
+    edd = body.get("edd")
+    if isinstance(edd, str) and edd:
+        try:
+            edd = dt2.date.fromisoformat(edd[:10])
+        except ValueError:
+            edd = None
+    else:
+        edd = None
+
+    patient = Patient(
+        name=name, phone=phone,
+        secondary_phone=body.get("secondary_phone") or None,
+        language=body.get("language") or "dagbani",
+        community=body.get("community") or (user.community or "Unknown"),
+        region=body.get("region") or "Northern",
+        edd=edd,
+        affordability=body.get("affordability") or "low",
+        taboos=body.get("taboos") or [],
+        minutes_to_facility=body.get("minutes_to_facility"),
+        road_condition=body.get("road_condition") or "fair",
+        consent=bool(body.get("consent")),
+        consent_at=dt2.datetime.utcnow() if body.get("consent") else None,
+        assigned_cho_id=user.id, facility_id=user.facility_id)
+    db.add(patient)
+    db.flush()
+    services.build_contact_schedule(db, patient)
+    return patient.id
+
+
 @router.post("/push")
 def push(body: PushIn, db: Session = Depends(get_db),
          user: User = Depends(current_user)):
-    accepted, duplicates, touched = 0, 0, set()
+    accepted, duplicates, touched, rejected = 0, 0, set(), []
     for item in body.events:
+        patient_id = item.patient_id
+
+        if item.event_type == "enrolment" and not patient_id:
+            patient_id = _materialise_enrolment(db, item, user)
+            if patient_id is None:
+                rejected.append({"event_id": item.event_id,
+                                 "reason": "enrolment missing name or phone"})
+                continue
+
+        # An event for a patient who does not exist used to create a stray
+        # PatientState row, inflating every metric denominator.
+        if patient_id and db.get(Patient, patient_id) is None:
+            rejected.append({"event_id": item.event_id,
+                             "reason": "unknown patient"})
+            continue
+
         existed = db.get(Event, item.event_id) is not None
-        ev.append(db, patient_id=item.patient_id, actor_id=user.id,
+        ev.append(db, patient_id=patient_id, actor_id=user.id,
                   event_type=item.event_type, payload=item.payload,
                   event_id=item.event_id, occurred_at=item.occurred_at,
                   recorded_at=item.recorded_at or item.occurred_at,
@@ -50,8 +123,8 @@ def push(body: PushIn, db: Session = Depends(get_db),
             duplicates += 1
         else:
             accepted += 1
-        if item.patient_id:
-            touched.add(item.patient_id)
+        if patient_id:
+            touched.add(patient_id)
 
     # Re-fold once per patient, not once per event: a late batch lands in the
     # right place in history and the projection is rebuilt from the whole log.
@@ -59,7 +132,7 @@ def push(body: PushIn, db: Session = Depends(get_db),
         ev.refresh_state(db, patient_id)
     db.commit()
     return {"accepted": accepted, "duplicates": duplicates,
-            "patients_refolded": len(touched)}
+            "rejected": rejected, "patients_refolded": len(touched)}
 
 
 @router.get("/pull")

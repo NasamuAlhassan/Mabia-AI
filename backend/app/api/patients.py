@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import events as ev
 from .. import services
 from ..db import get_db
-from ..models import Child, Emergency, Patient, PatientState, User
+from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
@@ -38,6 +38,19 @@ def enrol(body: EnrolIn, db: Session = Depends(get_db),
           user: User = Depends(current_user)):
     if not body.consent:
         raise HTTPException(400, "Consent must be recorded before enrolment.")
+
+    # The retry case, which is the normal case on a bad link: the same
+    # enrolment arriving twice must produce one woman, not two. Only the event
+    # was de-duplicated before, so the Patient row was inserted every time.
+    if body.event_id:
+        prior = db.get(Event, body.event_id)
+        if prior is not None and prior.patient_id:
+            return detail(prior.patient_id, db, user)
+    same_phone = (db.query(Patient)
+                    .filter(Patient.phone == body.phone.strip(),
+                            Patient.status == "active").first())
+    if same_phone is not None:
+        return detail(same_phone.id, db, user)
 
     edd = body.edd
     if edd is None and body.lmp is not None:

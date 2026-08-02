@@ -39,6 +39,10 @@ def validate(emergency_id: str, db: Session = Depends(get_db),
     emergency = db.get(Emergency, emergency_id)
     if not emergency:
         raise HTTPException(404, "No such emergency")
+    # Idempotent: a second tap on a slow link returns the same state rather
+    # than dispatching a second vehicle.
+    if emergency.status != "pending_validation":
+        return _view(db, emergency)
     services.validate_emergency(db, emergency, user)
     services.offer_next_driver(db, emergency)
     db.commit()

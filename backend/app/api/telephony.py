@@ -16,6 +16,7 @@ from .. import settings_store as store
 from ..db import get_db
 from ..models import (CallbackRequest, CallSession, Dispatch, Emergency,
                       Patient, User, UssdSession)
+from ..security import current_user
 from ..telephony import ivr
 from ..telephony import service as tel
 
@@ -98,7 +99,14 @@ async def voice(request: Request, db: Session = Depends(get_db)):
             if not session.outcome:
                 session.outcome = "dropped"
             db.flush()
-            _after_call(db, session)
+            if session.purpose == "driver":
+                # He never answered, or hung up without pressing anything. The
+                # emergency must move on rather than sit on a silent phone --
+                # this is the path that used to strand a bleeding woman in
+                # "dispatching" with nobody told.
+                _driver_no_answer(db, session)
+            else:
+                _after_call(db, session)
         db.commit()
         return Response(status_code=200)
 
@@ -108,6 +116,14 @@ async def voice(request: Request, db: Session = Depends(get_db)):
         return _xml("<Response><Say>Sorry, this call could not be matched. "
                     "Goodbye.</Say></Response>")
 
+    # The call is over. A late keypress, or a provider retry of the last
+    # webhook, must not walk the state machine again -- that used to duplicate
+    # the entire call into the event log.
+    if session.ended_at is not None:
+        db.commit()
+        return _xml(ivr.tell(base, session.language, "closing",
+                             prompts.line("closing")))
+
     # ---- driver dispatch: one question, one key --------------------------
     if session.purpose == "driver":
         return _driver_turn(db, session, dtmf, base, callback)
@@ -116,6 +132,10 @@ async def voice(request: Request, db: Session = Depends(get_db)):
     turn = ivr.advance(db, session, dtmf, base, callback)
 
     if turn.note == "nurse":
+        # Fold what she has already said into the log BEFORE routing her. She
+        # may have just reported bleeding and then asked for a person; losing
+        # that on the way to the nurse is the worst possible moment to lose it.
+        _after_call(db, session, keep_open=True)
         xml = _nurse_turn(db, session, base)
         db.commit()
         return _xml(xml)
@@ -130,6 +150,22 @@ async def voice(request: Request, db: Session = Depends(get_db)):
     return _xml(turn.xml)
 
 
+def _driver_no_answer(db: Session, session: CallSession) -> None:
+    dispatch = (db.query(Dispatch)
+                  .filter(Dispatch.emergency_id == session.emergency_id,
+                          Dispatch.driver_id == session.driver_id,
+                          Dispatch.status == "offered")
+                  .first())
+    if dispatch is None:
+        return
+    dispatch.status = "no_answer"
+    dispatch.responded_at = dt.datetime.utcnow()
+    db.flush()
+    emergency = db.get(Emergency, session.emergency_id)
+    if emergency and emergency.status in ("dispatching", "validated"):
+        services.offer_next_driver(db, emergency)
+
+
 def _driver_turn(db: Session, session: CallSession, dtmf, base, callback) -> Response:
     dispatch = (db.query(Dispatch)
                   .filter(Dispatch.emergency_id == session.emergency_id,
@@ -141,6 +177,11 @@ def _driver_turn(db: Session, session: CallSession, dtmf, base, callback) -> Res
         return _xml(ivr.ask(base, session.language, "driver_request",
                             prompts.line("driver_request"), callback))
 
+    if dtmf not in ("1", "2"):
+        db.commit()
+        return _xml(ivr.ask(base, session.language, "driver_request",
+                            prompts.line("not_understood") + " " +
+                            prompts.line("driver_request"), callback))
     accepted = dtmf == "1"
     if dispatch:
         services.driver_responded(db, dispatch, accepted)
@@ -176,11 +217,11 @@ def _nurse_turn(db: Session, session: CallSession, base: str) -> str:
     return ivr.tell(base, session.language, "nurse_unavailable", message)
 
 
-def _after_call(db: Session, session: CallSession) -> None:
+def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> None:
     """Everything expensive, once, off the call's critical path."""
     if session.purpose not in ("outreach", "hotline"):
         return
-    if session.outcome in ("failed",):
+    if session.outcome in ("failed", "no_input"):
         if session.patient_id:
             ev.record(db, patient_id=session.patient_id, actor_id="system",
                       event_type=ev.CALL_ATTEMPTED,
@@ -288,7 +329,8 @@ def _ussd_screen(db: Session, user: User, steps) -> str:
 
 
 @router.post("/run-callbacks")
-def run_callbacks(db: Session = Depends(get_db)):
+def run_callbacks(db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
     """Ring back everyone who flashed us. She spends nothing."""
     pending = (db.query(CallbackRequest)
                  .filter(CallbackRequest.status == "pending").limit(10).all())
@@ -311,7 +353,8 @@ def run_callbacks(db: Session = Depends(get_db)):
 
 
 @router.post("/flash")
-def simulate_flash(phone: str, db: Session = Depends(get_db)):
+def simulate_flash(phone: str, db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
     """Stand-in for a missed call, so the call-back path is demonstrable."""
     patient = db.query(Patient).filter(Patient.phone == phone).first()
     db.add(CallbackRequest(phone=phone, patient_id=patient.id if patient else None))

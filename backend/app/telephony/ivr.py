@@ -130,12 +130,30 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
     # --- greeting and consent -------------------------------------------
     if state == GREET:
         if digit is None:
+            # She may simply be listening, or the line may be bad, or she may
+            # never have used a keypad. Ask twice, then stop -- an unanswered
+            # call is a fact worth recording, not a loop to sit in.
+            session.no_input = (session.no_input or 0) + 1
+            if session.no_input > 2:
+                session.state = DONE
+                session.outcome = "no_input"
+                session.transcript = transcript
+                db.flush()
+                return Turn(tell(base_url, language, "no_answer",
+                                 prompts.line("no_answer")),
+                            finished=True, note="no_input")
             session.state = GREET
             session.transcript = transcript
             db.flush()
             text = "{} {} {}".format(prompts.line("greet"), prompts.line("consent"),
                                      prompts.line("escape_hint"))
             return Turn(ask(base_url, language, "greet_consent", text, callback_url))
+        if digit not in ("1", "2"):
+            session.transcript = transcript
+            db.flush()
+            return Turn(ask(base_url, language, "greet_consent",
+                            prompts.line("not_understood") + " " +
+                            prompts.line("consent"), callback_url))
         remember("consent", digit)
         if digit != "1":
             session.state = DONE
@@ -156,7 +174,39 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
     if state == DANGER:
         key, _ = DANGER_QUESTIONS[session.cursor]
         remember("danger_" + key, digit)
-        answers.setdefault("danger", {})[key] = (digit == "1")
+
+        # Three states, not two. Africa's Talking sends an empty dtmfDigits on
+        # timeout, and treating that as "no" would record a woman who is too
+        # weak, confused or unfamiliar with a keypad to press anything as having
+        # DENIED bleeding. In a product whose whole claim is that silence is not
+        # safety, that would be the worst possible bug to ship.
+        if digit == "1":
+            answers.setdefault("danger", {})[key] = True
+        elif digit == "2":
+            answers.setdefault("danger", {})[key] = False
+        elif digit is not None:
+            # A misdial, a * or a #. Never record a stray key as a denial --
+            # denials clear previously affirmed signs.
+            session.transcript = transcript
+            db.flush()
+            _, again = DANGER_QUESTIONS[session.cursor]
+            return Turn(ask(base_url, language, "danger_" + key,
+                            prompts.line("not_understood") + " " + again,
+                            callback_url))
+        else:
+            # Re-ask once before giving up on the question.
+            tries = answers.setdefault("retries", {})
+            if tries.get(key, 0) < 1:
+                tries[key] = tries.get(key, 0) + 1
+                session.answers = answers
+                session.transcript = transcript
+                db.flush()
+                _, again = DANGER_QUESTIONS[session.cursor]
+                return Turn(ask(base_url, language, "danger_" + key,
+                                prompts.line("not_understood") + " " + again,
+                                callback_url))
+            answers.setdefault("danger", {})[key] = None
+
         nxt = session.cursor + 1
         if nxt < len(DANGER_QUESTIONS):
             session.cursor = nxt
@@ -189,6 +239,12 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         qs = diet_questions_for(session)
         group = qs[session.cursor]["group"]
         remember("diet_" + group, digit)
+        if digit not in ("1", "2"):
+            session.transcript = transcript
+            db.flush()
+            return Turn(ask(base_url, language, "diet_" + group,
+                            prompts.line("not_understood") + " " +
+                            qs[session.cursor]["prompt"], callback_url))
         answers.setdefault("diet", {})[group] = (digit == "1")
         nxt = session.cursor + 1
         if nxt < len(qs):
@@ -253,6 +309,18 @@ def _nutrition_message(db: Session, session: CallSession) -> str:
         state = db.get(PatientState, patient.id)
         anaemia = bool(state and state.ifa_adherent is False)
 
+    # Do not repeat last contact's advice. She stops hearing a sentence she
+    # has heard before, and `exclude` existed for this and was never passed.
+    previous = []
+    if patient is not None:
+        from ..models import Event
+        last = (db.query(Event)
+                  .filter(Event.patient_id == patient.id,
+                          Event.event_type == ev.DIET_RECALL)
+                  .order_by(Event.occurred_at.desc()).first())
+        if last and (last.payload or {}).get("food_key"):
+            previous = [last.payload["food_key"]]
+
     rec = recommend(
         recall,
         region=(patient.region if patient else "Northern"),
@@ -260,9 +328,13 @@ def _nutrition_message(db: Session, session: CallSession) -> str:
         affordability=(patient.affordability if patient else "low"),
         taboos=(patient.taboos if patient else []) or [],
         anaemia_focus=anaemia,
+        exclude=previous,
     )
     if rec is None:
         return ""
+    if rec.food:
+        session.answers = dict(session.answers or {},
+                               nutrition_food=rec.food["key"])
     text = rec.message
     if rec.anaemia_tip:
         text = "{} {}".format(text, rec.anaemia_tip)
@@ -289,16 +361,28 @@ def _weeks_to_next_visit(db: Session, session: CallSession) -> int:
 
 
 def finalise(db: Session, session: CallSession) -> Tuple[str, list]:
-    """Fold the call into the log. Runs after the call, never during it."""
+    """Fold the call into the log. Runs after the call, once, never during it.
+
+    Guarded because a stray extra keypress -- a judge double-tapping, or a
+    provider retrying the last webhook -- used to re-run this and write the
+    whole call into the log a second time. Two identical diet recalls then read
+    as "below the minimum on CONSECUTIVE contacts" and manufactured a clinical
+    finding out of one call.
+    """
+    if session.finalised:
+        return ("green", [])
+    session.finalised = True
     answers = session.answers or {}
     danger = answers.get("danger", {})
-    affirmed = [k for k, v in danger.items() if v]
-    denied = [k for k, v in danger.items() if not v]
+    affirmed = [k for k, v in danger.items() if v is True]
+    denied = [k for k, v in danger.items() if v is False]
+    unanswered = [k for k, v in danger.items() if v is None]
 
-    if session.patient_id and (affirmed or denied):
+    if session.patient_id and (affirmed or denied or unanswered):
         ev.append(db, patient_id=session.patient_id, actor_id="system",
                   event_type=ev.DANGER_SIGNS,
                   payload={"signs": affirmed, "denied": denied,
+                           "unanswered": unanswered,
                            "source": "ivr", "session": session.id})
 
     diet = answers.get("diet")
@@ -310,6 +394,7 @@ def finalise(db: Session, session: CallSession) -> Tuple[str, list]:
                   payload={"instrument": instrument, "score": recall.score,
                            "total": recall.total, "missing": recall.missing,
                            "present": recall.present,
+                           "food_key": answers.get("nutrition_food"),
                            "message": answers.get("nutrition_message")})
 
     if session.patient_id:

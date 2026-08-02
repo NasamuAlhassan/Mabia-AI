@@ -62,6 +62,7 @@ class Snapshot:
         self.consecutive_unreachable = 0
         self.red_open = False
         self.delivered = False
+        self.unanswered: Dict[str, dt.datetime] = {}
         self.events_folded = 0
 
     @property
@@ -147,6 +148,10 @@ def _apply(snap: Snapshot, event: Event) -> None:
             snap.danger_signs[sign] = when
         for sign in payload.get("denied", []):
             snap.cleared_signs[sign] = when
+        # "Not asked" and "asked and denied" are different clinical facts. An
+        # unanswered question must never clear a sign she affirmed earlier.
+        for sign in payload.get("unanswered", []):
+            snap.unanswered[sign] = when
 
     elif kind == DIET_RECALL:
         snap.mdd_score = payload.get("score")

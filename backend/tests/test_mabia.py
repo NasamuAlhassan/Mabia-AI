@@ -170,10 +170,39 @@ def test_the_same_gap_gives_different_advice_in_different_months():
 
 
 def test_lean_season_prefers_what_is_gathered_over_what_is_bought():
-    gap = Recall(MDD_W, ["grains", "other_veg"])
-    lean = recommend(gap, region="Savannah", month=7, affordability="low")
-    assert lean.food["source"] in ("gathered", "stored")
-    assert lean.food["tier"] in ("free", "low")
+    """Within one gap, the lean season should push towards what is gathered.
+
+    Stated per-gap, because the engine picks the gap first: across gaps, a
+    missing flesh group outranks a missing fruit group regardless of season,
+    and it should.
+    """
+    only_leaves_missing = Recall(MDD_W, [
+        "grains", "pulses", "nuts_seeds", "dairy", "flesh", "eggs",
+        "vita_fruit_veg", "other_veg", "other_fruit"])
+    lean = recommend(only_leaves_missing, region="Northern", month=7,
+                     affordability="low")
+    assert lean.food["source"] == "gathered"
+    assert lean.food["tier"] == "free"
+
+
+def test_advice_rotates_through_her_gaps_instead_of_repeating():
+    """A woman missing seven groups used to hear one sentence for a year."""
+    gap = Recall(MDD_W, ["grains", "other_veg", "nuts_seeds"])
+    seen, groups = [], []
+    for _ in range(4):
+        rec = recommend(gap, region="Northern", month=7, affordability="low",
+                        recent_groups=groups)
+        seen.append(rec.food["key"])
+        groups.append(rec.group)
+    assert len(set(seen)) == 4, "the engine repeated itself: {}".format(seen)
+
+
+def test_lean_season_prices_put_eggs_out_of_reach():
+    """The file's premise is that lean means prices up. It must actually bite."""
+    from app.data.foods import FOODS_BY_KEY, tier_for
+    eggs = FOODS_BY_KEY["eggs"]
+    assert tier_for(eggs, "harvest") == "medium"
+    assert tier_for(eggs, "lean") == "high"
 
 
 def test_a_taboo_substitutes_within_the_same_food_group():
@@ -426,10 +455,17 @@ def test_an_inbound_call_is_rejected_so_she_pays_nothing(db, client):
         CallbackRequest.phone == "+233240000002").count() >= 1
 
 
-def test_callbacks_are_placed_back_to_the_caller(db, client):
-    r = client.post("/api/telephony/run-callbacks")
+def test_callbacks_are_placed_back_to_the_caller(db, client, auth):
+    r = client.post("/api/telephony/run-callbacks", headers=auth)
     assert r.status_code == 200
     assert r.json()["count"] >= 1
+
+
+def test_dialling_endpoints_refuse_anonymous_callers(client):
+    """These place outbound calls. Unauthenticated, they are toll fraud."""
+    assert client.post("/api/telephony/run-callbacks").status_code == 401
+    assert client.post("/api/telephony/flash",
+                       params={"phone": "+15550001111"}).status_code == 401
 
 
 # ------------------------------------------------------------------ sync

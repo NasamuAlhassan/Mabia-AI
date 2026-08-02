@@ -121,6 +121,11 @@ class Patient(Base):
     edd = Column(Date)
     affordability = Column(String, default="low")   # low | medium
     taboos = Column(JSON, default=list)             # food keys she will not eat
+    # Geography is the whole point of Delay 2, so it is captured at enrolment
+    # rather than inferred. Walking minutes, because that is the unit a CHO
+    # actually knows and a kilometre on a bad road is not a kilometre.
+    minutes_to_facility = Column(Integer)
+    road_condition = Column(String, default="fair")  # good | fair | poor
     consent = Column(Boolean, default=False)
     consent_at = Column(DateTime)
     assigned_cho_id = Column(String, ForeignKey("users.id"))
@@ -254,6 +259,8 @@ class CallSession(Base):
     answers = Column(MutableDict.as_mutable(JSON), default=dict)
     include_diet = Column(Boolean, default=False)
     escalated_to_nurse = Column(Boolean, default=False)
+    finalised = Column(Boolean, default=False)       # folded into the log already
+    no_input = Column(Integer, default=0)            # consecutive silent turns
     nurse_attempt = Column(Integer, default=0)
     outcome = Column(String)                         # completed | unreachable | dropped | nurse
     started_at = Column(DateTime, default=now)

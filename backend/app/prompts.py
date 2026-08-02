@@ -60,6 +60,8 @@ SCRIPT = {
     "driver_accepted": "Thank you. Please go now. The health worker will call you.",
     "driver_declined": "Thank you. We will ask another driver.",
     "not_understood": "Sorry, I did not get that.",
+    "no_answer": "We could not hear any answer. Your health worker will visit "
+                 "you. Goodbye.",
 }
 
 

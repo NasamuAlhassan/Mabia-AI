@@ -92,6 +92,21 @@ def _escalate(current: str, candidate: str) -> str:
     return candidate if _ORDER[candidate] > _ORDER[current] else current
 
 
+def _number(value):
+    """A measurement, or None -- never an exception.
+
+    Payloads arrive from devices over a lossy link, and a stringified "11.0"
+    used to raise TypeError deep inside a comparison, returning a 500 for that
+    patient on every subsequent read.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def classify(snapshot, patient=None) -> Verdict:
     """Classify a folded snapshot. Pure: no database, no clock, no I/O."""
     level = GREEN
@@ -107,39 +122,43 @@ def classify(snapshot, patient=None) -> Verdict:
             reasons.append(Reason("sign." + sign, AMBER, AMBER_SIGNS[sign]))
 
     # --- nutrition: mother ----------------------------------------------
-    if snapshot.muac_mother is not None and snapshot.muac_mother < MOTHER_MUAC_UNDERNUTRITION:
+    muac_mother = _number(snapshot.muac_mother)
+    muac_child = _number(snapshot.muac_child)
+    if muac_mother is not None and muac_mother < MOTHER_MUAC_UNDERNUTRITION:
         level = _escalate(level, AMBER)
         reasons.append(Reason(
             "muac.mother_low", AMBER,
             "Mother's MUAC below 23 cm",
-            "{:.1f} cm — undernutrition in pregnancy".format(snapshot.muac_mother)))
+            "{:.1f} cm — undernutrition in pregnancy".format(muac_mother)))
 
     # --- nutrition: child -----------------------------------------------
-    if snapshot.muac_child is not None:
-        if snapshot.muac_child < CHILD_MUAC_SEVERE:
+    if muac_child is not None:
+        if muac_child < CHILD_MUAC_SEVERE:
             level = _escalate(level, RED)
             reasons.append(Reason(
                 "muac.child_severe", RED,
                 "Child MUAC below 11.5 cm — severe acute malnutrition",
                 "Refer to CMAM"))
-        elif snapshot.muac_child < CHILD_MUAC_MODERATE:
+        elif muac_child < CHILD_MUAC_MODERATE:
             level = _escalate(level, AMBER)
             reasons.append(Reason(
                 "muac.child_moderate", AMBER,
                 "Child MUAC below 12.5 cm — moderate acute malnutrition",
-                "{:.1f} cm".format(snapshot.muac_child)))
+                "{:.1f} cm".format(muac_child)))
 
     # --- dietary diversity ----------------------------------------------
     # One low reading is a bad week. Two in a row is a pattern worth a visit.
     minimum = (MDD_W_MINIMUM if snapshot.mdd_instrument == "mdd_w"
                else MDD_CHILD_MINIMUM)
-    recent_low = [s for s in snapshot.mdd_history[-2:] if s is not None and s < minimum]
+    scores = [_number(s) for s in snapshot.mdd_history[-2:]]
+    recent_low = [s for s in scores if s is not None and s < minimum]
     if len(recent_low) >= 2:
         level = _escalate(level, AMBER)
         reasons.append(Reason(
             "diet.persistently_low", AMBER,
             "Dietary diversity below the minimum on consecutive contacts",
-            "Last scores: " + ", ".join(str(s) for s in snapshot.mdd_history[-2:])))
+            "Last scores: " + ", ".join(
+                str(int(s)) for s in scores if s is not None)))
 
     # --- iron and folic acid --------------------------------------------
     if snapshot.ifa_adherent is False:
@@ -157,18 +176,31 @@ def classify(snapshot, patient=None) -> Verdict:
             "Unreachable on three consecutive attempts",
             "Needs a physical visit — do not treat silence as safety"))
 
-    # --- access modifiers -------------------------------------------------
-    # Distance does not cause an emergency, but it changes how long one can be
-    # left. An amber case a long way from care on a bad road is a red case.
+    # --- access modifier ---------------------------------------------------
+    # Distance does not create an emergency; it shortens how long one can safely
+    # be left. So it escalates only CLINICAL ambers -- a symptom that could
+    # deteriorate -- and never an adherence or diet flag. Escalating "not taking
+    # iron tablets" to a night-time motorking because the road is poor would
+    # burn the driver network's goodwill within a week, and in a region where
+    # most CHPS catchments have poor roads it would escalate almost everything.
     if patient is not None and level == AMBER:
-        far = getattr(patient, "distance_km", None)
+        minutes = getattr(patient, "minutes_to_facility", None) or 0
         road = getattr(patient, "road_condition", None)
-        if (far or 0) >= 20 or road == "poor":
+        remote = minutes >= 90 or (minutes >= 45 and road == "poor")
+        clinical = any(r.code.startswith("sign.") or r.code.startswith("muac.")
+                       for r in reasons)
+        if remote and clinical:
             level = RED
             reasons.append(Reason(
                 "access.remote", RED,
-                "Long distance or poor road from care",
-                "Escalated because reaching care will take too long"))
+                "Far from care on a poor road",
+                "{} minutes away — a symptom that could worsen cannot wait a "
+                "week at this distance".format(minutes)))
+        elif remote:
+            reasons.append(Reason(
+                "access.slow", AMBER,
+                "{} minutes from care".format(minutes),
+                "Visit sooner than usual; reaching help takes longer here"))
 
     # --- an open RED stays RED -------------------------------------------
     if snapshot.red_open and level != RED:

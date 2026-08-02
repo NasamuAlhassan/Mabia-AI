@@ -92,6 +92,32 @@ def _materialise_enrolment(db: Session, item, user: User) -> Optional[str]:
     return patient.id
 
 
+def _expand_visit(db: Session, item, patient_id: str, user: User) -> None:
+    body = item.payload or {}
+    when = item.occurred_at
+    base = item.event_id
+
+    def child(suffix: str, event_type: str, payload: dict) -> None:
+        ev.append(db, patient_id=patient_id, actor_id=user.id,
+                  event_type=event_type, payload=payload,
+                  event_id="{}:{}".format(base, suffix),   # still idempotent
+                  occurred_at=when, recorded_at=item.recorded_at or when,
+                  device_id=item.device_id, seq=item.seq)
+
+    if body.get("signs") or body.get("denied"):
+        child("signs", ev.DANGER_SIGNS,
+              {"signs": body.get("signs", []), "denied": body.get("denied", []),
+               "source": "visit"})
+    if body.get("muac_mother") is not None:
+        child("muacm", ev.MUAC,
+              {"subject": "mother", "value_cm": body["muac_mother"]})
+    if body.get("muac_child") is not None:
+        child("muacc", ev.MUAC,
+              {"subject": "child", "value_cm": body["muac_child"]})
+    if body.get("ifa_adherent") is not None:
+        child("ifa", ev.IFA, {"adherent": body["ifa_adherent"]})
+
+
 @router.post("/push")
 def push(body: PushIn, db: Session = Depends(get_db),
          user: User = Depends(current_user)):
@@ -112,6 +138,13 @@ def push(body: PushIn, db: Session = Depends(get_db),
             rejected.append({"event_id": item.event_id,
                              "reason": "unknown patient"})
             continue
+
+        # A visit queued offline carries the whole form. Expanding it here into
+        # the same events the online path writes is what stops the arm
+        # measurement, the iron answer and the note from being silently dropped
+        # while the CHO is told her visit was saved.
+        if item.event_type == "visit_recorded" and patient_id:
+            _expand_visit(db, item, patient_id, user)
 
         existed = db.get(Event, item.event_id) is not None
         ev.append(db, patient_id=patient_id, actor_id=user.id,

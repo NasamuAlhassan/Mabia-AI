@@ -24,11 +24,28 @@ export default function Nutrition() {
     get('/api/worklist/nutrition').then(setCaseload).catch(() => {})
   }, [])
 
+  const [stale, setStale] = useState(null)
+
   useEffect(() => {
-    post('/api/nutrition/assess', {
-      instrument, present, month, region, affordability: afford,
-      anaemia_focus: anaemia,
-    }).then(setResult).catch(() => {})
+    // Debounced, and a failure clears the answer rather than leaving the
+    // previous month's advice on screen looking current. Silently stale
+    // nutrition guidance is a real harm, not a polish issue.
+    let cancelled = false
+    const timer = setTimeout(() => {
+      post('/api/nutrition/assess', {
+        instrument, present, month, region, affordability: afford,
+        anaemia_focus: anaemia,
+      })
+        .then(r => { if (!cancelled) { setResult(r); setStale(null) } })
+        .catch(e => {
+          if (cancelled) return
+          setResult(null)
+          setStale(e.message === 'offline'
+            ? 'No connection — showing nothing rather than advice for the wrong month.'
+            : e.message)
+        })
+    }, 350)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [instrument, present, month, region, afford, anaemia])
 
   const groups = instruments?.[instrument]?.groups || []
@@ -125,6 +142,8 @@ export default function Nutrition() {
           <span style={{ fontWeight: 400 }}>Anaemia concern</span>
         </label>
       </div>
+
+      {stale && <div className="notice bad" role="alert">{stale}</div>}
 
       {result && (
         <div className="card stripe green">

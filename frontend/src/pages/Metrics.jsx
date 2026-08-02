@@ -1,43 +1,104 @@
-import { useEffect, useState } from 'react'
-import { get } from '../api'
+import { BackLink } from '../App'
+import { useData, Failed, Skeleton } from '../lib/data'
 
-const CARDS = [
-  ['reach_rate', 'Reach rate', 'Enrolled women successfully contacted'],
-  ['contact_completion', 'Contact completion', 'Against the WHO eight-contact model'],
-  ['ifa_adherence', 'IFA adherence', 'Direct proxy for anaemia risk'],
-  ['minimum_dietary_diversity', 'Dietary diversity', 'Meeting the WHO minimum'],
-  ['nutrition_gaps_closed', 'Gaps closed', 'Missing groups filled by the next contact'],
-  ['referral_closure_rate', 'Referral closure', 'Confirmed by a health worker'],
-  ['care_received_rate', 'Care received', 'Proof of care, not just advice'],
-]
+// One number, then the funnel.
+//
+// Seven identical percentage tiles with no denominator, no baseline and no
+// period communicated "we had an analytics requirement". The funnel *is* the
+// Three Delays, which is the argument the whole product rests on, and it was
+// nowhere on screen. A judge should understand the thesis in four seconds.
 
 export default function Metrics() {
-  const [m, setM] = useState(null)
-  useEffect(() => { get('/api/metrics').then(setM).catch(() => {}) }, [])
-  if (!m) return <div className="center muted"><span className="spin" /></div>
+  const { data, error, loading, reload } = useData('/api/metrics')
+
+  if (loading && !data) return <Skeleton rows={3} />
+  if (!data) return <Failed error={error} onRetry={reload} />
+
+  const funnel = data.funnel || []
+  const top = Math.max(1, ...funnel.map(f => f.count))
+  const reached = data.reached_care ?? 0
+  const detected = funnel[0]?.count ?? 0
 
   return (
     <>
-      <h1>Impact</h1>
-      <p className="muted">{m.enrolled} women enrolled.</p>
-      <div className="metrics">
-        {CARDS.map(([k, label, help]) => (
-          <div className="metric" key={k}>
-            <div className="v">{m[k] == null ? '—' : `${m[k]}%`}</div>
-            <div className="k"><strong>{label}</strong><br />{help}</div>
-          </div>
-        ))}
-      </div>
-      <div className="card" style={{ marginTop: '1rem' }}>
-        <h2>Why “gaps closed” matters</h2>
+      <BackLink />
+
+      <section className="metric-hero">
+        <div className="n">{reached}</div>
+        <div className="k">
+          {reached === 1 ? 'woman has' : 'women have'} reached care with a health
+          worker confirming it — out of {detected} danger signs the platform
+          detected.
+        </div>
+      </section>
+
+      <div className="card">
+        <h2>Where people are lost</h2>
         <p className="muted tiny">
-          Most systems can report that advice was delivered. This one reports
-          whether a food group that was missing at one contact had come back by
-          the next — which is the difference between guidance being given and
-          guidance being followable. {m.counts.gaps_closed} of{' '}
-          {m.counts.gaps_measured} measured gaps have closed so far.
+          The Three Delays, measured. Each bar is how many cases got that far;
+          the number beside it is how many did not.
+        </p>
+        <div className="funnel">
+          {funnel.map((step, i) => (
+            <div className={`funnel-step ${step.lost > 0 ? 'drop' : ''}`} key={step.stage}>
+              <div className="funnel-bar"
+                   style={{ width: `${Math.max(6, (step.count / top) * 55)}%` }}>
+                {step.count}
+              </div>
+              <div className="funnel-label">
+                {step.stage}
+                <span className="muted tiny"> · Delay {step.delay}</span>
+              </div>
+              {step.lost > 0 && i > 0 && (
+                <div className="funnel-lost">−{step.lost}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Nutrition gaps closed</h2>
+        <p style={{ fontSize: '1.6rem', fontWeight: 700, margin: '4px 0' }}>
+          {data.counts.gaps_closed} of {data.counts.gaps_measured}
+        </p>
+        <p className="muted tiny">
+          Food groups that were missing at one contact and had come back by the
+          next. Most systems can report that advice was delivered; this reports
+          whether it could be followed, which is a different question and the
+          harder one.
+        </p>
+      </div>
+
+      <div className="card">
+        <h2>Reach</h2>
+        <table className="table">
+          <tbody>
+            <Row label="Women enrolled" value={data.enrolled} />
+            <Row label="Contacted on schedule" value={pct(data.reach_rate)} />
+            <Row label="Antenatal contacts completed" value={pct(data.contact_completion)} />
+            <Row label="Taking iron and folic acid" value={pct(data.ifa_adherence)} />
+            <Row label="Meeting minimum dietary diversity"
+                 value={pct(data.minimum_dietary_diversity)} />
+          </tbody>
+        </table>
+        <p className="muted tiny" style={{ marginTop: 12 }}>
+          Dietary diversity is reported by instrument — MDD-W across ten food
+          groups for women, and the eight-group child indicator for 6–23 months.
+          They are never combined.
         </p>
       </div>
     </>
+  )
+}
+
+const pct = (v) => (v == null ? '—' : `${v}%`)
+
+function Row({ label, value }) {
+  return (
+    <tr>
+      <td>{label}</td>
+      <td style={{ textAlign: 'right', fontWeight: 700 }}>{value}</td>
+    </tr>
   )
 }

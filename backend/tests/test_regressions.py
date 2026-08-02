@@ -431,3 +431,48 @@ def test_coverage_reports_what_a_caller_actually_hears(db):
     assert status["translated"] >= 70
     assert status["spoken_coverage"] <= 100
     assert status["needs_recording"] == status["total"] - status["with_audio"]
+
+
+# ------------------------------------------------------- offline visits
+
+
+def test_a_queued_visit_keeps_the_arm_measurement(db, client, auth):
+    """The offline path dropped MUAC, iron and the note while reporting success."""
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    body = {"events": [{
+        "event_id": "offline-visit-1", "patient_id": patient.id,
+        "event_type": "visit_recorded",
+        "payload": {"signs": ["fever"], "denied": ["bleeding"],
+                    "muac_mother": 21.8, "muac_child": 12.2,
+                    "ifa_adherent": False, "note": "seen at home"},
+        "occurred_at": dt.datetime.utcnow().isoformat(), "device_id": "phone-y"}]}
+    client.post("/api/sync/push", headers=auth, json=body)
+    db.expire_all()
+    state = db.get(PatientState, patient.id)
+    assert state.muac_mother == 21.8, "the arm measurement was dropped"
+    assert state.muac_child == 12.2
+    assert state.ifa_adherent is False
+
+
+def test_pushing_the_same_queued_visit_twice_is_harmless(db, client, auth):
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    body = {"events": [{
+        "event_id": "offline-visit-2", "patient_id": patient.id,
+        "event_type": "visit_recorded",
+        "payload": {"muac_mother": 20.1},
+        "occurred_at": dt.datetime.utcnow().isoformat(), "device_id": "phone-y"}]}
+    client.post("/api/sync/push", headers=auth, json=body)
+    before = db.query(Event).filter(Event.patient_id == patient.id).count()
+    client.post("/api/sync/push", headers=auth, json=body)
+    db.expire_all()
+    after = db.query(Event).filter(Event.patient_id == patient.id).count()
+    assert after == before, "a repeated flush duplicated the visit"
+
+
+def test_the_funnel_reports_every_stage_of_the_three_delays(db, client, auth):
+    out = client.get("/api/metrics", headers=auth).json()
+    stages = [f["stage"] for f in out["funnel"]]
+    assert len(stages) == 5
+    assert "Danger sign detected" in stages[0]
+    assert "Outcome recorded" in stages[-1]
+    assert all("delay" in f and "lost" in f for f in out["funnel"])

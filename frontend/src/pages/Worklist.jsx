@@ -1,121 +1,137 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { get, post } from '../api'
+import { useData, Failed, Skeleton, Empty } from '../lib/data'
+import CriticalAction from '../lib/CriticalAction'
 
-// RED first, then AMBER, then the rest. The sort is trivial; the value is that
-// a worker opens the app and knows who to see, instead of reading a list.
+// A queue of people, not a dashboard.
+//
+// The previous version led with the word "Worklist" at 24px — the largest text
+// on a screen whose most important content is the name of the woman she must
+// reach first — followed by three dead KPI tiles labelled "red", "amber",
+// "green". Those are database values, not instructions.
+//
+// So this is banded by what she should do, in the order she should do it:
+// an emergency takes the whole top of the screen; today is a plain list of
+// rows; routine is collapsed. Urgency is carried by ink and position, so it
+// survives greyscale, a bad projector, and colour-blindness.
 
-const LABEL = {
+const REASONS = {
   'sign.bleeding': 'Bleeding',
   'sign.convulsions': 'Convulsions',
-  'sign.severe_headache': 'Headache, blurred vision',
+  'sign.severe_headache': 'Bad headache, blurred vision',
   'sign.reduced_fetal_movement': 'Baby moving less',
   'sign.water_broken': 'Waters broken',
-  'sign.severe_abdominal_pain': 'Severe abdominal pain',
-  'sign.difficulty_breathing': 'Difficulty breathing',
+  'sign.severe_abdominal_pain': 'Severe stomach pain',
+  'sign.difficulty_breathing': 'Struggling to breathe',
+  'sign.unconscious': 'Lost consciousness',
   'sign.fever': 'Fever',
-  'sign.swelling': 'Swelling',
-  'muac.mother_low': 'Mother MUAC < 23 cm',
-  'muac.child_moderate': 'Child MUAC < 12.5 cm',
-  'muac.child_severe': 'Child MUAC < 11.5 cm — CMAM',
-  'diet.persistently_low': 'Diet low twice running',
+  'sign.swelling': 'Swollen face and hands',
+  'sign.severe_vomiting': 'Vomiting a lot',
+  'muac.mother_low': 'Her arm measure is low',
+  'muac.child_moderate': 'Child’s arm measure is low',
+  'muac.child_severe': 'Child severely malnourished',
+  'diet.persistently_low': 'Poor diet twice running',
   'ifa.not_adherent': 'Not taking iron tablets',
-  'contact.unreachable': 'Unreachable three times',
-  'access.remote': 'Far from care',
+  'contact.unreachable': 'No answer three times',
+  'access.remote': 'Far from care on a poor road',
+  'access.slow': 'A long way from care',
   'emergency.open': 'Emergency still open',
   'hotline.nurse_unreachable': 'Could not reach a nurse',
 }
 
-export const reasonLabel = (code) => LABEL[code] || code
+export const reasonLabel = (code) => REASONS[code] || code
+
+const WHEN = { red: 'See now', amber: 'See today', green: 'Routine' }
 
 export default function Worklist() {
-  const [data, setData] = useState(null)
-  const [emergencies, setEmergencies] = useState([])
-  const [error, setError] = useState('')
+  const list = useData('/api/worklist', { interval: 20000 })
+  const emergencies = useData('/api/emergencies', { interval: 20000 })
 
-  async function load() {
-    try {
-      setData(await get('/api/worklist'))
-      setEmergencies(await get('/api/emergencies'))
-      setError('')
-    } catch (e) {
-      setError(e.message === 'offline'
-        ? 'Offline — showing nothing rather than something stale.'
-        : e.message)
-    }
-  }
+  if (list.loading && !list.data) return <Skeleton rows={5} />
+  if (!list.data) return <Failed error={list.error} onRetry={list.reload} />
 
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t) }, [])
-
-  if (error) return <div className="notice warn">{error}</div>
-  if (!data) return <div className="center muted"><span className="spin" /></div>
-
-  const pending = emergencies.filter(e => e.status === 'pending_validation')
+  const patients = list.data.patients || []
+  const pending = (emergencies.data || []).filter(
+    e => e.status === 'pending_validation')
+  const today = patients.filter(p => p.risk_level === 'amber')
+  const routine = patients.filter(p => p.risk_level === 'green')
+  const red = patients.filter(p => p.risk_level === 'red')
 
   return (
     <>
-      <h1>Worklist</h1>
-
-      <div className="counts">
-        {['red', 'amber', 'green'].map(level => (
-          <div className={`count ${level}`} key={level}>
-            <div className="n">{data.counts[level] ?? 0}</div>
-            <div className="l">{level}</div>
+      {pending.map(em => (
+        <section className="emergency-band" key={em.id} aria-label="Emergency">
+          <div className="kicker">Emergency — waiting for you</div>
+          <div className="who">{em.patient?.name}</div>
+          <div className="where">{em.patient?.community}</div>
+          <div className="why">
+            {(em.reasons || []).map(reasonLabel).join(' · ') || 'Danger signs reported'}
           </div>
-        ))}
-      </div>
+          <CriticalAction
+            path={`/api/emergencies/${em.id}/validate`}
+            label="Confirm and call a driver"
+            busyLabel="Calling a driver…"
+            doneLabel="Driver called"
+            className=""
+            holdMs={700}
+            onDone={() => { emergencies.reload(); list.reload() }}
+          />
+        </section>
+      ))}
 
-      {pending.length > 0 && (
-        <div className="card stripe red">
-          <h2>Waiting for you to confirm</h2>
-          <p className="muted tiny">
-            Nothing dispatches until a person confirms it. That is the gate.
-          </p>
-          {pending.map(em => (
-            <div className="stack" key={em.id} style={{ marginTop: '.6rem' }}>
-              <div>
-                <strong>{em.patient?.name}</strong>{' '}
-                <span className="muted">· {em.patient?.community}</span>
-              </div>
-              <div className="chips">
-                {em.reasons.map(r => (
-                  <span className="chip" key={r}>{reasonLabel(r)}</span>
-                ))}
-              </div>
-              <button className="danger wide" onClick={async () => {
-                await post(`/api/emergencies/${em.id}/validate`); load()
-              }}>
-                Confirm emergency and call a driver
-              </button>
-            </div>
-          ))}
-        </div>
+      {red.filter(p => !pending.some(e => e.patient?.id === p.id)).length > 0 && (
+        <>
+          <h2 className="band-head">Emergency</h2>
+          {red.filter(p => !pending.some(e => e.patient?.id === p.id))
+              .map(p => <Person key={p.id} patient={p} band="today" />)}
+        </>
       )}
 
-      <div className="list">
-        {data.patients.map(p => (
-          <Link className={`item stripe ${p.risk_level}`} to={`/patients/${p.id}`} key={p.id}>
-            <div className="row">
-              <span className="name">{p.name}</span>
-              <span className="spacer" />
-              <span className={`badge ${p.risk_level}`}>{p.risk_level}</span>
-            </div>
-            <div className="muted tiny">{p.community} · {p.language}</div>
-            {p.reason_codes.length > 0 && (
-              <div className="chips" style={{ marginTop: '.4rem' }}>
-                {p.reason_codes.slice(0, 3).map(r => (
-                  <span className="chip" key={r}>{reasonLabel(r)}</span>
-                ))}
-              </div>
-            )}
-          </Link>
-        ))}
-      </div>
+      <h2 className="band-head">
+        See today {today.length > 0 && <span>· {today.length}</span>}
+      </h2>
+      {today.length === 0 ? (
+        <Empty title="Nobody needs a visit today">
+          Everyone on your list has been reached and is stable.
+        </Empty>
+      ) : today.map(p => <Person key={p.id} patient={p} band="today" />)}
 
-      <div className="row" style={{ marginTop: '1rem', gap: '.5rem' }}>
-        <Link className="btn" to="/facility">Facility view</Link>
-        <Link className="btn" to="/metrics">Impact</Link>
+      {routine.length > 0 && <RoutineBand people={routine} />}
+
+      <div className="row wrap" style={{ gap: 8, marginTop: 40 }}>
+        <Link className="btn" to="/facility">Facility</Link>
+        <Link className="btn" to="/metrics">What this has changed</Link>
       </div>
     </>
+  )
+}
+
+function Person({ patient, band }) {
+  const reasons = (patient.reason_codes || []).map(reasonLabel)
+  return (
+    <Link className={`person ${band}`} to={`/patients/${patient.id}`}>
+      <div className="row">
+        <span className="name">{patient.name}</span>
+        <span className="spacer" />
+        <span className="when">{WHEN[patient.risk_level]}</span>
+      </div>
+      <div className="meta">
+        {patient.community}
+        {patient.language && ` · speaks ${patient.language}`}
+      </div>
+      {reasons.length > 0 && (
+        <div className="why">{reasons.join(' · ')}</div>
+      )}
+    </Link>
+  )
+}
+
+function RoutineBand({ people }) {
+  return (
+    <details style={{ marginTop: 24 }}>
+      <summary className="disclosure" style={{ cursor: 'pointer' }}>
+        {people.length} routine {people.length === 1 ? 'visit' : 'visits'}
+      </summary>
+      {people.map(p => <Person key={p.id} patient={p} band="routine" />)}
+    </details>
   )
 }

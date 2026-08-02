@@ -4,8 +4,9 @@ import { login } from '../api'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [phone, setPhone] = useState('+233200000001')
-  const [pin, setPin] = useState('1234')
+  const [phone, setPhone] = useState(
+    () => localStorage.getItem('mabia.lastPhone') || '')
+  const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -14,6 +15,7 @@ export default function Login() {
     setBusy(true); setError('')
     try {
       await login(phone.trim(), pin.trim())
+      localStorage.setItem('mabia.lastPhone', phone.trim())
       navigate('/worklist')
     } catch (err) {
       setError(err.message === 'offline'
@@ -45,14 +47,16 @@ export default function Login() {
         </button>
       </form>
 
-      <div className="card tight">
-        <div className="tiny muted">
-          <strong>Demo accounts</strong> — PIN <code>1234</code> for all.<br />
-          <code>+233200000001</code> Fatima Abdulai (CHO)<br />
-          <code>+233200000002</code> Dawuda Mardia (nutrition officer)<br />
-          <code>+233200000003</code> Sister Ayisha (nurse)
+      {import.meta.env.DEV && (
+        <div className="card tight">
+          <div className="tiny muted">
+            <strong>Development only.</strong> PIN <code>1234</code>.<br />
+            <code>+233200000001</code> Fatima Abdulai (CHO)<br />
+            <code>+233200000002</code> Dawuda Mardia (nutrition officer)<br />
+            <code>+233200000003</code> Sister Ayisha (nurse)
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

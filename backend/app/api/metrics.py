@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Contact, Emergency, Event, Patient, PatientState, User
+from ..models import (Contact, Dispatch, Emergency, Event, Patient,
+                      PatientState, User)
 from ..security import current_user
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
@@ -36,7 +37,29 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
 
     gaps_closed, gaps_measured = _gap_closure(db)
 
+    # The Three Delays, as a funnel. This is the intellectual core of the whole
+    # product and it was previously invisible behind seven percentage tiles.
+    detected = db.query(Emergency).count()
+    validated = db.query(Emergency).filter(
+        Emergency.validated_at.isnot(None)).count()
+    accepted = db.query(Dispatch).filter(Dispatch.status == "accepted").count()
+    arrived = db.query(Emergency).filter(Emergency.arrived_at.isnot(None)).count()
+    recorded = db.query(Emergency).filter(Emergency.outcome.isnot(None)).count()
+
+    funnel = [
+        {"stage": "Danger sign detected", "count": detected, "delay": 1},
+        {"stage": "Confirmed by a health worker", "count": validated, "delay": 1},
+        {"stage": "Driver accepted", "count": accepted, "delay": 2},
+        {"stage": "Arrived at the facility", "count": arrived, "delay": 3},
+        {"stage": "Outcome recorded", "count": recorded, "delay": 3},
+    ]
+    for index, step in enumerate(funnel):
+        previous = funnel[index - 1]["count"] if index else step["count"]
+        step["lost"] = max(0, previous - step["count"])
+
     return {
+        "funnel": funnel,
+        "reached_care": care_received,
         "enrolled": patients,
         "reach_rate": _pct(reached, patients),
         "contact_completion": _pct(done, contacts),

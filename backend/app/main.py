@@ -13,10 +13,17 @@ app = FastAPI(title="Mabia AI", version="2.0.0",
               description="CHPS emergency response, voice outreach and "
                           "nutrition coordination for Northern Ghana.")
 
+# allow_credentials must stay False while allow_origins can be "*": browsers
+# reject that combination outright, and the web app would fail every request
+# with an opaque CORS error. Nothing here uses cookies -- auth is a Bearer
+# token -- so credentials are not needed.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins or ["*"],
-    allow_credentials=True,
+    # Vercel gives every preview deployment its own hostname, so the named
+    # production origin alone would break every preview build.
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

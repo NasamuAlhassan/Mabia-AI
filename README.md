@@ -46,6 +46,39 @@ The Setup screen tells you what works right now and what is missing, in terms of
 
 ---
 
+## Deploying
+
+Two services. The web app is at **https://mabia-ai.vercel.app**, the API at **https://mabia-api.onrender.com**.
+
+### Vercel — the web app
+
+Root directory `frontend`. One environment variable:
+
+| Variable | Value |
+|---|---|
+| `VITE_API_BASE` | `https://mabia-api.onrender.com` |
+
+Leave it unset locally — Vite proxies `/api` to `127.0.0.1:8000`, so development needs no value at all.
+
+### Render — the API
+
+Root directory `backend`, from `render.yaml`:
+
+| Variable | Value | Why |
+|---|---|---|
+| `CORS_ORIGINS` | `https://mabia-ai.vercel.app` | The web app's origin. Vercel preview URLs are allowed by pattern as well, so preview builds keep working. |
+| `PUBLIC_BASE_URL` | `https://mabia-api.onrender.com` | Where Africa's Talking calls back during a call. Without it a call connects and then falls silent. |
+| `JWT_SECRET` | generated | Sign-in tokens. |
+| `SEED_ON_START` | `1` | Seeds the demo caseload into an empty database. |
+| `PYTHON_VERSION` | `3.11` | |
+| `DATABASE_URL` | *unset* | Unset means SQLite on the service's disk. See the note below. |
+
+**On storage:** the API runs on SQLite by default, which on Render's free plan means the disk is wiped on every deploy and the demo caseload is re-seeded. That is right for a demo and wrong for a pilot. To keep data between deploys, uncomment the `databases` block and the `DATABASE_URL` entry in `render.yaml` — `psycopg2-binary` is already installed, and `config.py` handles the legacy `postgres://` scheme Render still hands out.
+
+**Two things that will bite if you change them.** `allow_credentials` must stay `False` while `allow_origins` can be `*` — browsers reject that combination outright and every request fails with an opaque CORS error. And `DATABASE_URL` pointing at Postgres without `psycopg2` installed gives a `ModuleNotFoundError` several frames inside SQLAlchemy; `config.py` now catches that at startup and says what to do.
+
+---
+
 ## The problem
 
 Maternal mortality in Ghana stood at 234 per 100,000 live births in 2023, against an SDG target of under 70. Between 2019 and 2023 the Northern Region alone accounted for 10% of the country's neonatal deaths. Stunting reaches nearly 30% in the Northern and North East Regions, and only 26.4% of children aged 6–23 months receive a minimum acceptable diet.

@@ -1,4 +1,11 @@
-# Backend on Render. The frontend deploys separately on Vercel from frontend/.
+# Backend on Render. The web app deploys separately on Vercel from frontend/.
+#
+# Storage note: this runs on SQLite, on the service's own disk. On the free
+# plan that disk is wiped on every deploy, so the demo caseload is re-seeded
+# each time -- which is what you want for a demo and not what you want for a
+# pilot. To keep data between deploys, uncomment the databases block at the
+# bottom and the DATABASE_URL entry above it; psycopg2 is already installed.
+
 services:
   - type: web
     name: mabia-api
@@ -15,16 +22,18 @@ services:
         generateValue: true
       - key: SEED_ON_START
         value: "1"
+      # The web app's origin. Vercel preview URLs are allowed by pattern too.
       - key: CORS_ORIGINS
-        value: "*"
-      # PUBLIC_BASE_URL must be this service's own https address, so that
-      # Africa's Talking has somewhere to ask what to play during a call.
-      # It can also be set from the Setup screen once the app is running.
-      - key: DATABASE_URL
-        fromDatabase:
-          name: mabia-db
-          property: connectionString
+        value: https://mabia-ai.vercel.app
+      # This service's own address. Africa's Talking calls back here during a
+      # call; without it a call connects and then falls silent.
+      - key: PUBLIC_BASE_URL
+        value: https://mabia-api.onrender.com
+      # - key: DATABASE_URL
+      #   fromDatabase:
+      #     name: mabia-db
+      #     property: connectionString
 
-databases:
-  - name: mabia-db
-    plan: free
+# databases:
+#   - name: mabia-db
+#     plan: free

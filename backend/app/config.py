@@ -14,10 +14,21 @@ class Settings:
     def __init__(self) -> None:
         self.app_name = "Mabia AI"
         self.database_url = os.getenv("DATABASE_URL", "sqlite:///./mabia.db")
-        # Render and other hosts still hand out the legacy postgres:// scheme.
+        # Render and other hosts still hand out the legacy postgres:// scheme,
+        # which SQLAlchemy 2 no longer recognises.
         if self.database_url.startswith("postgres://"):
             self.database_url = self.database_url.replace(
                 "postgres://", "postgresql://", 1)
+        # Fail loudly and usefully rather than with a bare ModuleNotFoundError
+        # three frames deep in SQLAlchemy.
+        if self.database_url.startswith("postgresql"):
+            try:
+                import psycopg2  # noqa: F401
+            except ImportError:  # pragma: no cover
+                raise RuntimeError(
+                    "DATABASE_URL points at Postgres but psycopg2 is not "
+                    "installed. Add psycopg2-binary to backend/requirements.txt, "
+                    "or unset DATABASE_URL to fall back to SQLite.")
         self.jwt_secret = os.getenv("JWT_SECRET", "dev-secret-change-me")
         self.jwt_algorithm = "HS256"
         self.jwt_ttl_hours = int(os.getenv("JWT_TTL_HOURS", "12"))

@@ -4,4 +4,7 @@ SQLAlchemy==2.0.36
 pydantic==2.10.4
 python-multipart==0.0.20
 httpx==0.28.1
+# Needed whenever DATABASE_URL points at Postgres, which it does on Render.
+# Locally the default is SQLite and this simply goes unused.
+psycopg2-binary==2.9.10
 pytest==8.3.4

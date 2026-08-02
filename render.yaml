@@ -1,0 +1,30 @@
+# Backend on Render. The frontend deploys separately on Vercel from frontend/.
+services:
+  - type: web
+    name: mabia-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SEED_ON_START
+        value: "1"
+      - key: CORS_ORIGINS
+        value: "*"
+      # PUBLIC_BASE_URL must be this service's own https address, so that
+      # Africa's Talking has somewhere to ask what to play during a call.
+      # It can also be set from the Setup screen once the app is running.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mabia-db
+          property: connectionString
+
+databases:
+  - name: mabia-db
+    plan: free

@@ -1,0 +1,186 @@
+# Mabia AI
+
+**CHPS Emergency Response, Voice Outreach and Nutrition Coordination Platform**
+
+An offline-first voice platform that calls pregnant women and caregivers in their own language over plain GSM — triaging danger signs, measuring dietary diversity, and dispatching community transport — so that silence is never mistaken for safety.
+
+Built for the **UNICEF StartUp Lab · AI for Nurturing Care Hackathon 2026**, for the Northern, North East, Savannah, Upper East and Upper West Regions of Ghana.
+
+> **Mabia** is the name of the language family spoken across most of Northern Ghana — Dagbani, Kusaal, Frafra and their siblings. It means *mother's child*, from **ma** (mother) and **bia** (child).
+
+---
+
+## Run it
+
+```bash
+git clone https://github.com/NasamuAlhassan/Mabia-AI.git
+cd Mabia-AI
+./scripts/dev.sh
+```
+
+That is the whole setup. No Docker, no Postgres, no telephony account — SQLite and a built-in simulator cover all of it.
+
+- **Web** → http://localhost:5173
+- **API** → http://127.0.0.1:8000 (interactive docs at `/docs`)
+- **Sign in** → `+233200000001` / PIN `1234`
+
+```bash
+./scripts/test.sh    # 39 tests
+```
+
+## Make it call a real phone
+
+Everything operational is entered on the **Setup** screen in the browser, not in a config file — a CHPS deployment gets handed to people who will never open a terminal.
+
+1. Open **Setup**.
+2. Switch the provider to **Africa's Talking** and paste your API key and username.
+3. Enter your **voice number** and **your own phone number** to test against.
+4. Expose the API so Africa's Talking can call back:
+   ```bash
+   ngrok http 8000
+   ```
+   Paste the `https://…` URL into **Public callback URL**, and set the same URL as the voice callback on your number in the Africa's Talking dashboard.
+5. Press **Place a test call**.
+
+The Setup screen tells you what works right now and what is missing, in terms of what will actually go wrong. A missing callback URL doesn't say "field required" — it says the call will connect and then fall silent, which is what actually happens.
+
+---
+
+## The problem
+
+Maternal mortality in Ghana stood at 234 per 100,000 live births in 2023, against an SDG target of under 70. Between 2019 and 2023 the Northern Region alone accounted for 10% of the country's neonatal deaths. Stunting reaches nearly 30% in the Northern and North East Regions, and only 26.4% of children aged 6–23 months receive a minimum acceptable diet.
+
+These failures map onto the **Three Delays** (Thaddeus & Maine, 1994):
+
+| Delay | What fails | What Mabia AI does |
+|---|---|---|
+| **1 — Deciding to seek care** | Helplines wait passively; they assume a woman already knows something is wrong | The system **calls her**, on a schedule anchored to her pregnancy |
+| **2 — Reaching care** | Long distances, poor roads, almost no ambulances | Automated voice dispatch of community drivers, accepted by keypad |
+| **3 — Receiving adequate care** | Facilities learn of a case as the patient arrives; referral completion is never confirmed | Facility notified ahead with the reasons; case stays open until the outcome is logged |
+
+---
+
+## How it works
+
+```mermaid
+flowchart TD
+    A[CHO enrols household<br/>offline, on device] --> B[(Append-only<br/>event log)]
+    B --> C[Cloud scheduler<br/>WHO 8-contact model]
+    C --> D[Outbound voice call<br/>in local language]
+    D --> E[Danger-sign triage<br/>keypad, single digit]
+    D --> F[Dietary diversity<br/>MDD-W / child MDD]
+    F --> G[Nutrition engine<br/>gap × region × month × affordability]
+    G --> D
+    E --> H{Risk engine<br/>rule-based, explainable}
+    H -->|Green| B
+    H -->|Amber| I[CHO worklist<br/>follow up this week]
+    H -->|Red| J[SMS alert to CHO]
+    J --> K{CHO validates<br/>human in the loop}
+    K --> L[Transport engine<br/>drivers by community]
+    L --> M[Voice call to driver<br/>press 1 to accept]
+    M --> N[Facility notified<br/>prepares resources]
+    N --> O[CHO logs outcome:<br/>was care received?]
+    O --> B
+```
+
+A caregiver can also reach the platform at any time: she rings and hangs up, and the system **calls her back** — so reaching help never depends on having airtime at the moment of crisis. She can press **9** at any point to be routed to an on-call nurse. If nobody answers at any level of the cascade, the call still ends by telling her that her health worker has been alerted, and a RED is raised. **No call is permitted to end silently.**
+
+---
+
+## Six decisions worth knowing
+
+**The event log is append-only because two writers act on the same patient by design** — the cloud scheduler writing call results, and the CHO recording a visit offline. Both append; neither overwrites, so a worker who syncs three days late cannot destroy data. Patient state and risk are *projections*, recomputed by folding the log, never stored as authoritative values.
+
+**Ingest is idempotent on a client-generated id.** A worker on a failing 3G link can retry the same batch forever and the result is identical. This one property removes most sync bugs, and it is why enrolment generates its id on the device.
+
+**SMS pushes, USSD pulls.** A USSD session can only be started by the person holding the handset, so it cannot be used to alert anyone. SMS carries the interrupt; USSD is how a CHO pulls her worklist with no mobile data at all.
+
+**Nutrition advice is filtered by what she can actually get.** Northern Ghana has one rainy season, so May–August is a lean period when advice to *buy* food is not advice. In that window the engine shifts to gathered and stored foods — dried fish powder, groundnut paste, dawadawa, and baobab leaf and moringa, which grow locally and cost nothing. MDD-W (ten groups, women) and the child indicator (eight, including breast milk) are kept separate throughout and never conflated.
+
+**The AI recommends; it never decides.** Every classification carries structured reason codes rendered in the worker's language, every escalation passes a named human, and every case is closed by a person. The engine is deterministic and auditable — the event log is shaped so models can be trained later, rather than claiming prediction without data.
+
+**Speech is an enhancement layer, not a dependency.** The keypad path is complete and standalone. TTS and closed-vocabulary recognition for Dagbani, Kusaal, Frafra and Gonja ride on top, trained with narrowband augmentation to match telephone audio rather than studio audio. Recorded prompts drop into `backend/audio/<language>/` and are picked up automatically; anything missing falls back to spoken English so the flow is always testable.
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React, Vite, PWA, IndexedDB |
+| Backend | Python, FastAPI, SQLAlchemy |
+| Database | SQLite locally, PostgreSQL in the cloud |
+| Intelligence | Deterministic rule engine; seasonal food model |
+| Communications | Africa's Talking Voice, SMS, USSD — or the built-in simulator |
+| Deploy | Render (API) + Vercel (web) |
+
+## Layout
+
+```
+backend/
+  app/
+    events.py          the append-only log and the fold
+    engines/risk.py    Green / Amber / Red with reason codes
+    engines/nutrition.py   gap × region × month × affordability
+    data/foods.py      the seasonal food table for Northern Ghana
+    telephony/ivr.py   the call state machine
+    telephony/africastalking.py  |  telephony/simulator.py
+    services.py        emergencies, dispatch, nurse cascade, no dead ends
+    api/               routes, incl. the voice and USSD webhooks
+  tests/               39 tests
+  audio/<language>/    recorded prompts, served publicly
+frontend/src/pages/    Setup, Worklist, Patient, Enrol, Calls, Nutrition, …
+scripts/               dev.sh, test.sh
+```
+
+---
+
+## What the tests actually check
+
+Not coverage — the specific claims that would be embarrassing to make and have a judge break:
+
+- The same measured gap produces **different advice in June and October**, so the seasonal model is real and not a message bank
+- A **late sync does not overwrite a newer reading** — a visit recorded three days ago lands in history, not on top of it
+- A **RED stays RED** until a human records the outcome
+- **No call dead-ends**: with the on-call roster emptied on purpose, the call still alerts the CHO and raises a RED
+- **MDD-W is ten groups and the child indicator is eight**, and they never mix
+- A **food taboo substitutes within the same food group** rather than dropping the advice
+- Pushing the same event batch twice enrols **one** woman, not two
+- **USSD screens fit inside 182 characters**
+
+---
+
+## Status
+
+| Component | Status |
+|---|---|
+| Append-only event log, idempotent sync, projections | ✅ Working |
+| Risk engine with reason codes | ✅ Working |
+| Nutrition engine, seasonal food table | ✅ Working |
+| IVR state machine, keypad triage, press-9 to nurse | ✅ Working |
+| Inbound hotline, flash-to-callback, nurse cascade | ✅ Working |
+| Emergency validation, transport dispatch, outcome logging | ✅ Working |
+| CHO worklist, enrolment, patient history, facility view | ✅ Working |
+| Nutrition officer view, impact metrics | ✅ Working |
+| USSD worklist retrieval | ✅ Working (needs a live shared code to dial) |
+| Recorded local-language audio | ⚪ Drops into `backend/audio/` |
+| TTS / closed-vocabulary ASR | ⚪ In training |
+| Predictive models, national system integration | ⚪ Roadmap |
+
+---
+
+## Team
+
+| Member | Role |
+|---|---|
+| **Prince Nasamu Alhassan** | Engineering and AI lead — backend, speech models, risk and nutrition engines. University of Ghana, Legon (Mathematical Science with Computer Science) |
+| **Joshua Akum Winyelsum** | Full-stack and design — CHPS Progressive Web App and interface. University for Development Studies, Tamale (Computer Science) |
+| **Dawuda Mardia** | Nutrition and community research — owns the local-food model: seasonal availability, affordability, food groups and cultural food taboos. University for Development Studies, Tamale (Food and Nutrition) |
+
+---
+
+## Acknowledgements
+
+Built for the KOICA–UNICEF Accelerating Entrepreneurship and Innovation in Ghana Project, UNICEF StartUp Lab.
+
+Mabia AI does not replace national health information systems. It captures the out-of-facility community contacts that those systems structurally cannot see.

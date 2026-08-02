@@ -21,7 +21,7 @@ export function useData(path, { interval = 0, enabled = true } = {}) {
   const alive = useRef(true)
   const seq = useRef(0)
 
-  const reload = useCallback(async ({ quiet = false } = {}) => {
+  const reload = useCallback(async ({ quiet = false, attempt = 0 } = {}) => {
     if (!enabled) return
     const mine = ++seq.current
     if (!quiet) setLoading(true)
@@ -33,6 +33,20 @@ export function useData(path, { interval = 0, enabled = true } = {}) {
       cache.set(path, { data: fresh, at: Date.now() }).catch(() => {})
     } catch (e) {
       if (!alive.current || mine !== seq.current) return
+
+      // One retry before declaring failure. On a 2G link the first request of a
+      // session routinely loses a race -- with a token that has just been
+      // written, with a dyno waking up, with a radio that has not attached yet
+      // -- and telling a health worker "could not load this" when a second
+      // attempt would have worked is how an app earns a reputation for being
+      // broken. Auth failures are not retried: those will not fix themselves.
+      const worthRetrying = !(e instanceof ApiError && e.status === 401)
+      if (attempt < 1 && worthRetrying) {
+        await new Promise(r => setTimeout(r, 600))
+        if (!alive.current) return
+        return reload({ quiet, attempt: attempt + 1 })
+      }
+
       const cached = await cache.get(path).catch(() => null)
       if (cached) {
         setData(cached.data); setFetchedAt(cached.at); setFromCache(true)

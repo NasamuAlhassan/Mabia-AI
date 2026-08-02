@@ -26,6 +26,13 @@ class EnrolIn(BaseModel):
     edd: Optional[dt.date] = None
     affordability: str = "low"
     taboos: List[str] = []
+    # Geography, collected rather than inferred. The risk engine shortens the
+    # follow-up window for a symptom that could worsen when she is far from
+    # care; without these fields that rule is dead code, which is exactly what
+    # it was before.
+    minutes_to_facility: Optional[int] = None
+    road_condition: str = "fair"
+    secondary_name: Optional[str] = None
     consent: bool = False
     facility_id: Optional[str] = None
     danger_signs: List[str] = []
@@ -61,6 +68,8 @@ def enrol(body: EnrolIn, db: Session = Depends(get_db),
         secondary_phone=body.secondary_phone, language=body.language,
         community=body.community, region=body.region, lmp=body.lmp, edd=edd,
         affordability=body.affordability, taboos=body.taboos,
+        minutes_to_facility=body.minutes_to_facility,
+        road_condition=body.road_condition,
         consent=True, consent_at=dt.datetime.utcnow(),
         assigned_cho_id=user.id, facility_id=body.facility_id or user.facility_id)
     db.add(patient)
@@ -73,7 +82,8 @@ def enrol(body: EnrolIn, db: Session = Depends(get_db),
     ev.append(db, patient_id=patient.id, actor_id=user.id,
               event_type=ev.CONSENT_GIVEN, device_id=body.device_id,
               payload={"scope": ["scheduled_calls", "health_record",
-                                 "secondary_contact"]})
+                                 "secondary_contact"],
+                       "secondary_name": body.secondary_name})
     if body.danger_signs:
         ev.append(db, patient_id=patient.id, actor_id=user.id,
                   event_type=ev.DANGER_SIGNS, device_id=body.device_id,
@@ -181,6 +191,8 @@ def _summary(db: Session, patient: Patient):
     state = db.get(PatientState, patient.id)
     return {"id": patient.id, "name": patient.name, "phone": patient.phone,
             "community": patient.community, "region": patient.region,
+            "minutes_to_facility": patient.minutes_to_facility,
+            "road_condition": patient.road_condition,
             "language": patient.language, "edd": patient.edd,
             "affordability": patient.affordability, "status": patient.status,
             "risk_level": state.risk_level if state else "green",

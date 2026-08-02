@@ -184,6 +184,16 @@ export default function Setup() {
         )}
       </div>
 
+      <div className="card">
+        <h2>Test the call flow</h2>
+        <p className="muted tiny">
+          Answer a handset on screen and press keys. It drives the same webhook
+          a real call drives, so the flow can be rehearsed with no telephony
+          account and no signal.
+        </p>
+        <a className="btn wide" href="/simulator">Open the call simulator</a>
+      </div>
+
       <div className="card tight">
         <div className="tiny muted">
           <strong>Local testing.</strong> Africa’s Talking has to reach your

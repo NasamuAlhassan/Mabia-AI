@@ -19,10 +19,27 @@ export default function Simulator() {
   }
   useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t) }, [])
 
+  const [pressing, setPressing] = useState(false)
+  const [native, setNative] = useState('')
+  const [error, setError] = useState('')
+
   async function press(sessionId, digit) {
-    const out = await post('/api/simulator/press', { session_id: sessionId, digit })
-    setActive(sessionId); setScreen(out.spoken || '(silence)'); setEnded(out.ended)
-    load()
+    // Guarded: double-tapping the keypad on a slow link used to fire two
+    // presses into the same IVR session and walk the state machine twice.
+    if (pressing) return
+    setPressing(true); setError('')
+    try {
+      const out = await post('/api/simulator/press',
+                             { session_id: sessionId, digit })
+      setActive(sessionId)
+      setScreen(out.spoken || '(silence)')
+      setNative(out.in_language || '')
+      setEnded(out.ended)
+      load()
+    } catch (e) {
+      setError(e.message === 'offline'
+        ? 'No connection to the server.' : e.message)
+    } finally { setPressing(false) }
   }
 
   return (
@@ -60,8 +77,17 @@ export default function Simulator() {
             </div>
             <div className="screen">
               {active === h.session_id ? screen
-                : h.ringing ? '☎ Ringing… press Answer' : 'In progress'}
+                : h.ringing ? 'Ringing… press Answer' : 'In progress'}
+              {active === h.session_id && native && (
+                <span className="native">
+                  {native}
+                  <span className="muted tiny" style={{ display: 'block' }}>
+                    what she would hear, in {h.language} — translated by Khaya
+                  </span>
+                </span>
+              )}
             </div>
+            {error && <div className="notice bad" role="alert">{error}</div>}
             {active === h.session_id && ended ? (
               <div className="notice ok">Call ended.</div>
             ) : (
@@ -71,12 +97,15 @@ export default function Simulator() {
                           onClick={() => press(h.session_id, null)}>Answer</button>
                 )}
                 <div className="keypad">
-                  {['1', '2', '9'].map(d => (
-                    <button key={d} onClick={() => press(h.session_id, d)}>{d}</button>
+                  {['1', '2', '3', '7', '9', '0'].map(d => (
+                    <button key={d} disabled={pressing}
+                            onClick={() => press(h.session_id, d)}>{d}</button>
                   ))}
                 </div>
                 <p className="tiny muted" style={{ marginTop: '.5rem' }}>
-                  1 = yes · 2 = no · 9 = speak to a nurse, from any point
+                  1 = yes · 2 = no · 9 = speak to a nurse, from any point.
+                  Try 3, 7 or 0 — a wrong key re-asks rather than being recorded
+                  as a denial.
                 </p>
               </>
             )}

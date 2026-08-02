@@ -22,10 +22,10 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 
 - **Web** → http://localhost:5173
 - **API** → http://127.0.0.1:8000 (interactive docs at `/docs`)
-- **Sign in** → `+233200000001` / PIN `1234`
+- **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 39 tests
+./scripts/test.sh    # 69 tests
 ```
 
 ## Make it call a real phone
@@ -170,37 +170,70 @@ scripts/               dev.sh, test.sh
 
 ## What the tests actually check
 
-Not coverage — the specific claims that would be embarrassing to make and have a judge break:
+Not coverage — the specific claims that would be embarrassing to have broken in
+front of a judge. Several of these exist because a review broke the earlier
+version live:
 
-- The same measured gap produces **different advice in June and October**, so the seasonal model is real and not a message bank
-- A **late sync does not overwrite a newer reading** — a visit recorded three days ago lands in history, not on top of it
+- A **DTMF timeout is never recorded as a denial**. A woman too weak or
+  unfamiliar with a keypad to press anything used to be written down as having
+  denied bleeding
+- **Pressing 9 for a nurse keeps** everything she just reported
+- A **late keypress does not re-fold the call** into the log and manufacture a
+  clinical finding from one call
+- A **driver whose phone is off advances the queue** instead of stranding the
+  emergency
+- **Two drivers cannot both accept**; double-tapping Confirm does not dispatch twice
+- An **enrolment queued offline becomes a real patient**, and pushing it twice
+  enrols one woman
+- A **queued visit keeps the arm measurement**, the iron answer and the note
+- A **late sync does not overwrite a newer reading**
 - A **RED stays RED** until a human records the outcome
-- **No call dead-ends**: with the on-call roster emptied on purpose, the call still alerts the CHO and raises a RED
-- **MDD-W is ten groups and the child indicator is eight**, and they never mix
-- A **food taboo substitutes within the same food group** rather than dropping the advice
-- Pushing the same event batch twice enrols **one** woman, not two
-- **USSD screens fit inside 182 characters**
-
----
+- **Distance escalates a symptom but not a missed tablet** — a poor road must
+  not dispatch a vehicle at night because someone skipped iron
+- **Advice rotates through her gaps** rather than repeating one sentence for a year
+- **MDD-W is ten groups, the child indicator is eight**, and they never mix
+- The **catalogue covers every line the platform says**, so a new danger sign
+  cannot escape translation
+- A **recorded human voice is never overwritten** by a generated one
 
 ## Status
 
+Honest about the difference between built, partly built, and not built. An
+earlier version of this table listed things as working that had no trigger, read
+columns that did not exist, or lived in an empty directory — so this one is
+written to be checkable.
+
 | Component | Status |
 |---|---|
-| Append-only event log, idempotent sync, projections | ✅ Working |
-| Risk engine with reason codes | ✅ Working |
-| Nutrition engine, seasonal food table | ✅ Working |
-| IVR state machine, keypad triage, press-9 to nurse | ✅ Working |
-| Inbound hotline, flash-to-callback, nurse cascade | ✅ Working |
-| Emergency validation, transport dispatch, outcome logging | ✅ Working |
-| CHO worklist, enrolment, patient history, facility view | ✅ Working |
-| Nutrition officer view, impact metrics | ✅ Working |
-| USSD worklist retrieval | ✅ Working (needs a live shared code to dial) |
-| Recorded local-language audio | ⚪ Drops into `backend/audio/` |
-| TTS / closed-vocabulary ASR | ⚪ In training |
-| Predictive models, national system integration | ⚪ Roadmap |
+| Append-only event log, idempotent sync, projections | **Working** |
+| Risk engine with reason codes, human-in-the-loop | **Working** |
+| Nutrition engine: gap-first, seasonal, affordability-aware | **Working** |
+| IVR state machine, keypad triage, press-9 to a nurse | **Working** |
+| Inbound hotline, flash-to-callback, nurse cascade, no dead ends | **Working** |
+| Emergency validation, driver cascade, outcome logging | **Working** |
+| CHO worklist, enrolment, visit recording, facility board | **Working** |
+| Outreach scheduler (run-due endpoint + daily cron) | **Working** |
+| Khaya translation: Dagbani, all 79 lines | **Working**, shipped in the repo |
+| Khaya translation: Kusaal 18/79, Frafra 0/79 | **Blocked** — free-tier quota, replenishes mid-August |
+| Khaya translation: Gonja | **Not possible** — no model exists; Gonja is Guang, not Mabia |
+| Local-language *audio* | **Not built.** Khaya's TTS is down upstream. A real call still plays English |
+| Speech recognition | **Not started.** The keypad path is complete and stands alone |
+| USSD worklist retrieval | Built; needs a live shared code to dial |
+| Predictive models, DHIMS2 integration | Roadmap, and deliberately so — see below |
 
----
+**On the audio, plainly:** the platform has real Dagbani *wording* and no Dagbani
+*voice*. Khaya translates correctly and its speech service returns an
+unavailable page. So today a handset hears English. The Voice screen reports
+this as “100% translated, 0% spoken” rather than a green tick, and the fix is
+either the service returning or a speaker sitting down with the recording list —
+which the app generates, in priority order, and can record into directly.
+
+**On the AI, plainly:** the triage and nutrition engines are deterministic rule
+engines, not models. That is a choice, not a gap. A rule that fires because a
+woman reported bleeding can be read, argued with and overruled by a health
+worker; a model trained on data that does not yet exist cannot. The event log is
+shaped so models can be trained once real programme data accumulates. Claiming
+prediction today would be the easy thing and the wrong one.
 
 ## Team
 

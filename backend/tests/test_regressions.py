@@ -476,3 +476,22 @@ def test_the_funnel_reports_every_stage_of_the_three_delays(db, client, auth):
     assert "Danger sign detected" in stages[0]
     assert "Outcome recorded" in stages[-1]
     assert all("delay" in f and "lost" in f for f in out["funnel"])
+
+
+def test_geography_is_actually_collected_at_enrolment(db, client, auth):
+    """The rule that reads these fields was dead code once already."""
+    body = {"name": "Far Woman", "phone": "+233240000922", "community": "Kpale",
+            "consent": True, "minutes_to_facility": 120, "road_condition": "poor",
+            "edd": (dt.date.today() + dt.timedelta(days=60)).isoformat()}
+    out = client.post("/api/patients", headers=auth, json=body).json()
+    assert out["minutes_to_facility"] == 120
+    assert out["road_condition"] == "poor"
+
+    created = db.query(Patient).filter(Patient.phone == "+233240000922").first()
+    ev.append(db, patient_id=created.id, event_type=ev.DANGER_SIGNS,
+              payload={"signs": ["fever"], "denied": []})
+    state = ev.refresh_state(db, created.id)
+    db.commit()
+    assert state.risk_level == "red", \
+        "a symptom two hours from care on a poor road should not wait a week"
+    assert "access.remote" in (state.reason_codes or [])

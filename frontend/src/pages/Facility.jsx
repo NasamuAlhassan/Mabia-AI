@@ -40,6 +40,9 @@ export default function Facility() {
     <>
       <BackLink />
       <h1>Facility</h1>
+      <span className="sr-only" role="status">
+        {rows.length} {rows.length === 1 ? 'case' : 'cases'} inbound
+      </span>
       <p className="muted">
         Who is coming, why, and how long they have been travelling.
       </p>

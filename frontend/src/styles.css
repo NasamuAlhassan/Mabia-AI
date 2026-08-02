@@ -405,3 +405,17 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* Three numbers side by side. Justified on the Voice workbench, where the whole
+ * question is "how much of this language can we actually speak" — and removed
+ * from the worklist, where it was decoration above the only thing that mattered. */
+.counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2);
+          margin-bottom: var(--s3); }
+.count { border: 1px solid var(--line); border-radius: var(--radius);
+         padding: var(--s3); text-align: center; background: var(--card); }
+.count .n { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+.count .l { font-size: .78rem; color: var(--ink-soft); margin-top: var(--s1); }
+.count.green .n { color: var(--ok); }
+.count.amber .n { color: var(--ochre-ink); }
+
+.list { display: flex; flex-direction: column; gap: var(--s2); }

@@ -495,3 +495,81 @@ def test_geography_is_actually_collected_at_enrolment(db, client, auth):
     assert state.risk_level == "red", \
         "a symptom two hours from care on a poor road should not wait a week"
     assert "access.remote" in (state.reason_codes or [])
+
+
+def test_care_received_clears_the_sign_but_not_reaching_care_does_not(db, client, auth):
+    """Found by running three actors through one emergency end to end.
+
+    Leaving her permanently RED after treatment would bury every genuinely new
+    emergency under a stale one. But a referral that did not land must keep the
+    flag up — that distinction is the entire reason for tracking outcomes rather
+    than referrals.
+    """
+    for outcome, expect_red in (("not_reached", True), ("care_received", False)):
+        patient = Patient(name="Outcome " + outcome, phone="+2332400009" + outcome[:2],
+                          community="Kpale", region="Northern", consent=True)
+        db.add(patient)
+        db.flush()
+        ev.append(db, patient_id=patient.id, event_type=ev.DANGER_SIGNS,
+                  payload={"signs": ["bleeding"], "denied": []})
+        ev.refresh_state(db, patient.id)
+        emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+        db.commit()
+        assert db.get(PatientState, patient.id).risk_level == "red"
+
+        client.post("/api/emergencies/{}/outcome".format(emergency.id),
+                    headers=auth, json={"outcome": outcome, "note": ""})
+        db.expire_all()
+        level = db.get(PatientState, patient.id).risk_level
+        assert (level == "red") is expect_red, \
+            "outcome '{}' left her at {}".format(outcome, level)
+
+
+# --------------------------------------------------------------- hostile input
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({}, 422),
+    ({"name": "X", "phone": "+233240000441", "community": "K", "consent": False}, 400),
+    ({"name": "a" * 500, "phone": "+233240000442", "community": "K", "consent": True}, 422),
+    ({"name": "X", "phone": "not-a-number", "community": "K", "consent": True}, 422),
+    ({"name": "X", "phone": "+233240000443", "community": "K", "consent": True,
+      "minutes_to_facility": -5}, 422),
+])
+def test_enrolment_refuses_nonsense(client, auth, payload, expected):
+    assert client.post("/api/patients", headers=auth, json=payload).status_code == expected
+
+
+@pytest.mark.parametrize("body", [
+    {"instrument": "mdd_w", "present": [], "month": 13},
+    {"instrument": "mdd_w", "present": [], "month": 0},
+    {"instrument": "not-a-thing", "present": []},
+])
+def test_nutrition_refuses_impossible_parameters(client, auth, body):
+    assert client.post("/api/nutrition/assess", headers=auth, json=body).status_code == 422
+
+
+def test_a_string_where_a_list_belongs_is_rejected_not_silently_dropped(
+        db, client, auth):
+    """It used to be iterated character by character, losing the danger sign."""
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    out = client.post("/api/sync/push", headers=auth, json={"events": [{
+        "event_id": "malformed-signs-1", "patient_id": patient.id,
+        "event_type": "danger_signs_reported",
+        "payload": {"signs": "bleeding"},
+        "occurred_at": dt.datetime.utcnow().isoformat()}]}).json()
+    assert out["rejected"], "a malformed payload was accepted"
+    assert out["accepted"] == 0
+
+
+def test_nothing_in_the_api_returns_a_500_for_bad_input(client, auth):
+    """A 4xx is a conversation. A 5xx is a dropped call and a stuck emergency."""
+    probes = [
+        ("GET", "/api/patients/does-not-exist", None),
+        ("POST", "/api/emergencies/nope/validate", None),
+        ("GET", "/api/language/phrases?language=klingon", None),
+        ("POST", "/api/language/translate?language=klingon", None),
+    ]
+    for method, url, body in probes:
+        r = client.request(method, url, headers=auth, json=body)
+        assert r.status_code < 500, "{} {} returned {}".format(method, url, r.status_code)

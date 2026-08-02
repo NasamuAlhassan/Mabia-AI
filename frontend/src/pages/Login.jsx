@@ -25,7 +25,7 @@ export default function Login() {
   }
 
   return (
-    <div className="auth">
+    <main className="auth">
       <h1>Mabia AI</h1>
       <p className="muted">CHPS emergency response, voice outreach and nutrition
         coordination for Northern Ghana.</p>
@@ -41,7 +41,7 @@ export default function Login() {
           <input id="pin" type="password" inputMode="numeric" value={pin}
                  onChange={e => setPin(e.target.value)} autoComplete="current-password" />
         </div>
-        {error && <div className="notice bad">{error}</div>}
+        {error && <div className="notice bad" role="alert">{error}</div>}
         <button className="primary wide" disabled={busy}>
           {busy ? <span className="spin" /> : 'Sign in'}
         </button>
@@ -57,6 +57,6 @@ export default function Login() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   )
 }

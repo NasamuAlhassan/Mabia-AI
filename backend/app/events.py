@@ -190,6 +190,17 @@ def _apply(snap: Snapshot, event: Event) -> None:
     elif kind in (RED_CLOSED, REFERRAL_OUTCOME):
         # Only a human closing the loop clears an open RED.
         snap.red_open = False
+        # And only care actually received clears the signs that prompted it.
+        #
+        # If she reached a facility and was treated, the bleeding that triggered
+        # the emergency has been dealt with, and leaving her permanently RED
+        # would bury every genuinely new emergency underneath a stale one. If
+        # she did NOT reach care, or the family declined, the sign stands and so
+        # does the flag — which is the whole point of tracking outcomes rather
+        # than just referrals.
+        if payload.get("outcome") == "care_received":
+            for sign in list(snap.danger_signs):
+                snap.cleared_signs[sign] = when
 
     elif kind == DELIVERED:
         snap.delivered = True

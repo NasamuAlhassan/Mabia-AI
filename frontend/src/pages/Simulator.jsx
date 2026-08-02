@@ -75,7 +75,7 @@ export default function Simulator() {
             <div className="muted tiny" style={{ marginBottom: '.5rem' }}>
               {h.phone} · {h.language}
             </div>
-            <div className="screen">
+            <div className="screen" role="status" aria-live="polite">
               {active === h.session_id ? screen
                 : h.ringing ? 'Ringing… press Answer' : 'In progress'}
               {active === h.session_id && native && (

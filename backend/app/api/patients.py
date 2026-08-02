@@ -3,7 +3,7 @@ import datetime as dt
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .. import events as ev
@@ -16,11 +16,11 @@ router = APIRouter(prefix="/api/patients", tags=["patients"])
 
 
 class EnrolIn(BaseModel):
-    name: str
-    phone: str
-    secondary_phone: Optional[str] = None
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=7, max_length=20)
+    secondary_phone: Optional[str] = Field(default=None, max_length=20)
     language: str = "dagbani"
-    community: str
+    community: str = Field(max_length=80)
     region: str = "Northern"
     lmp: Optional[dt.date] = None
     edd: Optional[dt.date] = None
@@ -30,7 +30,7 @@ class EnrolIn(BaseModel):
     # follow-up window for a symptom that could worsen when she is far from
     # care; without these fields that rule is dead code, which is exactly what
     # it was before.
-    minutes_to_facility: Optional[int] = None
+    minutes_to_facility: Optional[int] = Field(default=None, ge=0, le=1440)
     road_condition: str = "fair"
     secondary_name: Optional[str] = None
     consent: bool = False
@@ -38,6 +38,16 @@ class EnrolIn(BaseModel):
     danger_signs: List[str] = []
     event_id: Optional[str] = None      # client-generated: makes retries safe
     device_id: str = "web"
+
+    @field_validator("phone", "secondary_phone")
+    @classmethod
+    def _plausible_number(cls, value):
+        if value is None:
+            return value
+        cleaned = value.replace(" ", "").replace("-", "")
+        if not cleaned.lstrip("+").isdigit():
+            raise ValueError("A phone number should be digits, like +233240000000.")
+        return cleaned
 
 
 @router.post("")

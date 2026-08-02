@@ -59,7 +59,8 @@ export default function Worklist() {
   return (
     <>
       {pending.map(em => (
-        <section className="emergency-band" key={em.id} aria-label="Emergency">
+        <section className="emergency-band" key={em.id} role="alert"
+                 aria-label={`Emergency: ${em.patient?.name}, ${em.patient?.community}`}>
           <div className="kicker">Emergency — waiting for you</div>
           <div className="who">{em.patient?.name}</div>
           <div className="where">{em.patient?.community}</div>

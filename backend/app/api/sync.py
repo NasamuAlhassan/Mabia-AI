@@ -146,6 +146,17 @@ def push(body: PushIn, db: Session = Depends(get_db),
         if item.event_type == "visit_recorded" and patient_id:
             _expand_visit(db, item, patient_id, user)
 
+        # A string where a list belongs used to be accepted and then iterated
+        # character by character, silently discarding the danger sign and
+        # leaving the patient green.
+        payload = item.payload or {}
+        malformed = [key for key in ("signs", "denied", "unanswered")
+                     if key in payload and not isinstance(payload[key], list)]
+        if malformed:
+            rejected.append({"event_id": item.event_id,
+                             "reason": "expected a list for " + ", ".join(malformed)})
+            continue
+
         existed = db.get(Event, item.event_id) is not None
         ev.append(db, patient_id=patient_id, actor_id=user.id,
                   event_type=item.event_type, payload=item.payload,

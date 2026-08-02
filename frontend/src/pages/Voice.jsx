@@ -221,8 +221,9 @@ function PhraseRow({ phrase, onChange }) {
 
       {editing ? (
         <>
-          <textarea value={text} onChange={e => setText(e.target.value)}
-                    aria-label={`Translation for ${phrase.key}`} />
+          <textarea id={`t-${phrase.id}`} value={text}
+                    onChange={e => setText(e.target.value)}
+                    aria-label={`Translation for ${phrase.english}`} />
           <div className="row" style={{ gap: '.4rem', marginTop: '.4rem' }}>
             <button className="primary small" onClick={save}>Save</button>
             <button className="small" onClick={() => setEditing(false)}>Cancel</button>

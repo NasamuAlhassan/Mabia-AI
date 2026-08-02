@@ -3,7 +3,7 @@ import datetime as dt
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .. import events as ev
@@ -56,12 +56,22 @@ class RecallIn(BaseModel):
     instrument: str = MDD_W
     present: List[str] = []
     region: Optional[str] = None
-    month: Optional[int] = None
+    month: Optional[int] = Field(default=None, ge=1, le=12)
     affordability: Optional[str] = None
     taboos: List[str] = []
     anaemia_focus: bool = False
     patient_id: Optional[str] = None
     save: bool = False
+
+    @field_validator("instrument")
+    @classmethod
+    def _known_instrument(cls, value):
+        if value not in (MDD_W, MDD_CHILD):
+            raise ValueError(
+                "instrument must be 'mdd_w' (women, ten groups) or "
+                "'mdd_child' (6-23 months, eight groups). They are different "
+                "instruments and are never interchangeable.")
+        return value
 
 
 @router.post("/assess")

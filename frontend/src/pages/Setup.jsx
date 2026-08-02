@@ -92,13 +92,17 @@ export default function Setup() {
   return (
     <>
       <h1>Setup</h1>
+      <span className="sr-only" role="status">
+        {readiness ? (readiness.can_call ? 'Ready to place calls'
+          : 'Not yet able to place calls') : ''}
+      </span>
       <p className="muted">
         Fill this in and the platform will call a real handset. Leave it on the
         simulator and everything still works on screen.
       </p>
 
       {flash && (
-        <div className={`notice ${flash.bad ? 'bad' : 'ok'}`}>{flash.text}</div>
+        <div className={`notice ${flash.bad ? 'bad' : 'ok'}`} role="status">{flash.text}</div>
       )}
 
       {readiness && (
@@ -112,7 +116,8 @@ export default function Setup() {
           </div>
           {readiness.checks.map(c => (
             <div className="check" key={c.name}>
-              <span className="dot">{c.ok ? '✓' : '✗'}</span>
+              <span className="dot" aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
+              <span className="sr-only">{c.ok ? 'Ready:' : 'Missing:'}</span>
               <span><strong>{c.name}</strong> — <span className="muted">{c.detail}</span></span>
             </div>
           ))}

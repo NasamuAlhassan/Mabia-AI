@@ -38,13 +38,15 @@ export default function Metrics() {
           The Three Delays, measured. Each bar is how many cases got that far;
           the number beside it is how many did not.
         </p>
-        <div className="funnel">
+        <div className="funnel" role="list">
           {funnel.map((step, i) => (
-            <div className={`funnel-step ${step.lost > 0 ? 'drop' : ''}`} key={step.stage}>
-              <div className="funnel-bar"
+            <div className={`funnel-step ${step.lost > 0 ? 'drop' : ''}`}
+                 key={step.stage} role="listitem">
+              <div className="funnel-bar" aria-hidden="true"
                    style={{ width: `${Math.max(6, (step.count / top) * 55)}%` }}>
                 {step.count}
               </div>
+              <span className="sr-only">{step.count} cases reached: </span>
               <div className="funnel-label">
                 {step.stage}
                 <span className="muted tiny"> · Delay {step.delay}</span>

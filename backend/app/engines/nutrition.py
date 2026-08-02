@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 from ..data.foods import (AFFORDABILITY_CEILING, CHILD_MINIMUM, FOODS,
                           MDDW_MINIMUM, TIERS, group_labels, groups_for,
-                          season_for, tier_for)
+                          GROUP_WHY, HYDRATION_NOTE, season_for, tier_for)
 
 MDD_W = "mdd_w"
 MDD_CHILD = "mdd_child"
@@ -61,8 +61,14 @@ class Recommendation:
         self.alternatives = alternatives or []
         self.anaemia_tip = anaemia_tip
 
+    @property
+    def why(self):
+        return GROUP_WHY.get(self.group, "")
+
     def to_dict(self):
         return {
+            "why": self.why,
+            "hydration": HYDRATION_NOTE,
             "food_key": self.food["key"] if self.food else None,
             "food_name": self.food["name"] if self.food else None,
             "local_names": self.food.get("local_names", {}) if self.food else {},

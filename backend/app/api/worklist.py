@@ -49,11 +49,39 @@ def worklist(db: Session = Depends(get_db), user: User = Depends(current_user),
 def nutrition_worklist(db: Session = Depends(get_db),
                        user: User = Depends(current_user)):
     """The nutrition officer's view of the same caseload."""
+    from .. import events as ev
+
     rows = []
     for patient in db.query(Patient).filter(Patient.status == "active").all():
         state = db.get(PatientState, patient.id)
         if not state:
             continue
+
+        # Direction of travel is the entire clinical question in CMAM, and a
+        # single number cannot express it. One reading of 12.2 cm on the way up
+        # and one on the way down are different children.
+        # Coerced, not trusted. A device can push "11.0" as a string over a
+        # lossy link, and a measurement that cannot be parsed is not a
+        # measurement -- it must not be subtracted from the next one.
+        from ..engines.risk import _number
+
+        history = []
+        for e in ev.load(db, patient.id):
+            if e.event_type != ev.MUAC:
+                continue
+            value = _number((e.payload or {}).get("value_cm"))
+            if value is None:
+                continue
+            history.append({"at": e.occurred_at,
+                            "subject": (e.payload or {}).get("subject"),
+                            "value": value})
+        child_series = [h["value"] for h in history if h["subject"] == "child"][-4:]
+        mother_series = [h["value"] for h in history if h["subject"] != "child"][-4:]
+
+        def trend(series):
+            if len(series) < 2:
+                return None
+            return round(series[-1] - series[0], 1)
         concern = (
             (state.mdd_score is not None and state.mdd_score < 5)
             or (state.muac_mother is not None and state.muac_mother < 23.0)
@@ -66,7 +94,14 @@ def nutrition_worklist(db: Session = Depends(get_db),
             "mdd_missing": state.mdd_missing_groups or [],
             "muac_mother": state.muac_mother, "muac_child": state.muac_child,
             "ifa_adherent": state.ifa_adherent, "concern": concern,
+            "child_series": child_series, "mother_series": mother_series,
+            "child_trend": trend(child_series),
+            "mother_trend": trend(mother_series),
             "risk_level": state.risk_level})
-    rows.sort(key=lambda r: (not r["concern"], r["name"]))
+    # Sorted by how fast they are getting worse, not alphabetically.
+    rows.sort(key=lambda r: (not r["concern"],
+                             r["child_trend"] if r["child_trend"] is not None else 99,
+                             r["mother_trend"] if r["mother_trend"] is not None else 99,
+                             r["name"]))
     return {"patients": rows,
             "concerns": sum(1 for r in rows if r["concern"])}

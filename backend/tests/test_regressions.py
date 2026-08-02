@@ -573,3 +573,46 @@ def test_nothing_in_the_api_returns_a_500_for_bad_input(client, auth):
     for method, url, body in probes:
         r = client.request(method, url, headers=auth, json=body)
         assert r.status_code < 500, "{} {} returned {}".format(method, url, r.status_code)
+
+
+# ------------------------------------------------------------- nutrition depth
+
+
+def test_advice_explains_why_the_gap_matters_without_diagnosing(db):
+    """Plain language, and modest: a screening measure is not a diagnosis."""
+    from app.engines.nutrition import MDD_W, Recall, recommend
+    gap = Recall(MDD_W, ["grains", "other_veg"])
+    rec = recommend(gap, region="Northern", month=7, affordability="low")
+    body = rec.to_dict()
+    assert body["why"], "no explanation of why the gap matters"
+    assert body["hydration"], "hydration advice missing"
+    # No unsupported clinical claims.
+    for banned in ("will die", "diagnos", "cure", "guarantee"):
+        assert banned not in body["why"].lower()
+        assert banned not in body["message"].lower()
+
+
+def test_the_caseload_reports_direction_of_travel(db, client, auth):
+    """One arm measurement cannot say whether a child is recovering."""
+    patient = db.query(Patient).filter(Patient.name == "Hawa Sulemana").first()
+    for offset, value in ((20, 12.8), (10, 12.1), (2, 11.4)):
+        ev.append(db, patient_id=patient.id, event_type=ev.MUAC,
+                  occurred_at=dt.datetime.utcnow() - dt.timedelta(days=offset),
+                  payload={"subject": "child", "value_cm": value})
+    ev.refresh_state(db, patient.id)
+    db.commit()
+
+    rows = client.get("/api/worklist/nutrition", headers=auth).json()["patients"]
+    hers = [r for r in rows if r["id"] == patient.id][0]
+    assert hers["child_series"] == [12.8, 12.1, 11.4]
+    assert hers["child_trend"] == -1.4, "a falling child was not reported as falling"
+
+    # And a falling child must sort above every child who is not falling.
+    # Asserted relatively, not as index 0: other tests in this file add their
+    # own measurements, and a test that depends on the order the suite happens
+    # to run in is a test that will fail for the wrong reason one morning.
+    stable = [r for r in rows
+              if r["child_trend"] is None or r["child_trend"] >= 0]
+    for other in stable:
+        assert rows.index(hers) < rows.index(other), \
+            "a falling child sorted below a stable one"

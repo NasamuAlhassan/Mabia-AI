@@ -230,6 +230,44 @@ def tier_for(food, season: str) -> str:
     return food["tier"]
 
 
+# Why each gap matters, in words a caregiver would use. Deliberately plain and
+# deliberately modest: these describe what a food group is for, not what will
+# happen to her if she misses it. Nutrition advice that implies a diagnosis is
+# both wrong and frightening, and a CHO has to be able to say it out loud
+# without over-promising.
+GROUP_WHY = {
+    "flesh": "Fish, meat and eggs build the blood. Women short of them tire "
+             "easily and are more likely to be anaemic.",
+    "dark_leafy": "Green leaves carry iron and folate, which the body needs "
+                  "more of during pregnancy.",
+    "vita_fruit_veg": "Orange and yellow foods carry vitamin A, which protects "
+                      "a child's eyes and helps them fight infection.",
+    "pulses": "Beans and groundnuts are the cheapest way to add protein when "
+              "meat is out of reach.",
+    "pulses_nuts_seeds": "Beans and groundnuts add the protein a growing child "
+                         "needs when meat is too costly.",
+    "nuts_seeds": "Groundnut and dawadawa add energy and iron to food that is "
+                  "otherwise mostly starch.",
+    "dairy": "Milk adds calcium and protein, useful but not essential if other "
+             "protein is there.",
+    "eggs": "One egg is a complete protein and among the easiest to add.",
+    "grains": "The base of the meal. On its own it fills the stomach without "
+              "feeding growth, so it needs something added to it.",
+    "other_veg": "Vegetables add the vitamins that keep the rest of the diet "
+                 "working.",
+    "other_fruit": "Fruit adds vitamin C, which helps the body take up iron "
+                   "from the same meal.",
+    "other_fruit_veg": "Fruit and vegetables add vitamins and help iron get in.",
+    "breastmilk": "Breast milk remains the single most important food up to "
+                  "two years, alongside other foods after six months.",
+}
+
+# Attached alongside the food message. Water is not a food group and is not
+# scored, but it is the cheapest advice there is and it is routinely missed.
+HYDRATION_NOTE = ("Drink clean water through the day, more when it is hot or "
+                  "you are working in the field.")
+
+
 def season_for(month: int) -> str:
     if month in LEAN_MONTHS:
         return "lean"

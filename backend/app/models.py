@@ -357,6 +357,35 @@ class Dispatch(Base):
 # --------------------------------------------------------------- settings
 
 
+class Phrase(Base):
+    """One line of the call script, in one language.
+
+    The unit the language pipeline works on. English is the source of truth;
+    everything else is derived and can be regenerated, except a recorded human
+    take, which cannot and is therefore never overwritten automatically.
+    """
+    __tablename__ = "phrases"
+
+    id = Column(String, primary_key=True, default=uuid7)
+    key = Column(String, nullable=False, index=True)     # e.g. danger_bleeding
+    language = Column(String, nullable=False, index=True)
+    category = Column(String, default="script")          # script | diet | food
+    source_text = Column(Text, nullable=False)           # the English
+    translated_text = Column(Text)
+    status = Column(String, default="pending")
+    # pending | translated | failed | unsupported | reviewed
+    provider = Column(String)                            # khaya | manual
+    error = Column(Text)
+    reviewed_by = Column(String, ForeignKey("users.id"))
+    reviewed_at = Column(DateTime)
+    audio_path = Column(String)                          # relative to backend/audio
+    audio_source = Column(String)                        # khaya_tts | recorded
+    audio_bytes = Column(Integer)
+    updated_at = Column(DateTime, default=now, onupdate=now)
+
+    __table_args__ = (UniqueConstraint("key", "language"),)
+
+
 class Setting(Base):
     """Operational configuration entered from the browser.
 

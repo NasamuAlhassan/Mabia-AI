@@ -48,6 +48,27 @@ export const get = (p) => api(p)
 export const post = (p, body) => api(p, { method: 'POST', body })
 export const put = (p, body) => api(p, { method: 'PUT', body })
 
+export async function upload(path, blob, filename) {
+  const form = new FormData()
+  form.append('file', blob, filename)
+  const headers = {}
+  const t = token.get()
+  if (t) headers.Authorization = `Bearer ${t}`
+
+  let res
+  try {
+    res = await fetch(BASE + path, { method: 'POST', headers, body: form })
+  } catch {
+    throw new ApiError('offline', 0)
+  }
+  if (!res.ok) {
+    let detail = `Upload failed (${res.status})`
+    try { const j = await res.json(); detail = j.detail || detail } catch {}
+    throw new ApiError(detail, res.status)
+  }
+  return res.json()
+}
+
 export async function login(phone, pin) {
   const out = await api('/api/auth/login', {
     method: 'POST', body: { phone, pin }, auth: false,

@@ -48,13 +48,33 @@ DONE = "done"
 
 
 def _audio_url(base_url: str, language: str, key: str) -> Optional[str]:
-    """A recorded clip if we have one, otherwise None and we fall back to speech."""
+    """A clip for this line in this language, if one exists on disk."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[2] / "audio" / language
     for suffix in (".wav", ".mp3"):
         if (root / (key + suffix)).exists():
             return "{}/audio/{}/{}{}".format(base_url.rstrip("/"), language, key, suffix)
     return None
+
+
+def spoken_text(db, language: str, key: str, fallback: str) -> str:
+    """The words for this line: the reviewed translation if we have one.
+
+    Falls back to the English source. This is the honest position while Khaya's
+    speech service is down -- the wording is genuinely in her language and can
+    be read on screen, but what a handset actually plays is English until there
+    is a clip. The Voice screen reports exactly that gap rather than hiding it.
+    """
+    try:
+        from ..models import Phrase
+        row = (db.query(Phrase)
+                 .filter(Phrase.language == language, Phrase.key == key)
+                 .first())
+        if row and row.translated_text:
+            return row.translated_text
+    except Exception:
+        pass
+    return fallback
 
 
 def speak(base_url: str, language: str, key: str, text: str) -> str:

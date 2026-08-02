@@ -11,3 +11,9 @@ build/
 .vite/
 coverage/
 .pytest_cache/
+
+# Generated or recorded audio: never committed. Clips are produced by the
+# Khaya pipeline, recorded through the Voice screen, or generated locally by
+# backend/scripts_generate_placeholder_audio.py.
+backend/audio/**/*.wav
+backend/audio/**/*.mp3

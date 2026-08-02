@@ -27,6 +27,10 @@ def seed(db: Session) -> None:
     tamale = Facility(name="Tamale West Hospital", community="Tamale",
                       region="Northern", phone="+233200000011")
     db.add_all([kpale, tamale])
+    from .language import pipeline as language_pipeline
+    for lang in language_pipeline.ALL_LANGUAGES:
+        language_pipeline.sync_catalogue(db, lang)
+
     db.flush()
 
     cho = User(name="Fatima Abdulai", phone="+233200000001",

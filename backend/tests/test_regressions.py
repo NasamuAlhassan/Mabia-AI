@@ -354,3 +354,80 @@ def test_distance_escalates_a_symptom_but_not_a_missed_tablet(db):
     verdict = classify(adherence, Far())
     assert verdict.level == AMBER, \
         "a missed iron tablet dispatched a vehicle because the road is poor"
+
+
+# ------------------------------------------------------------- language
+
+
+def test_the_catalogue_covers_everything_the_platform_says(db):
+    """A new danger sign or food must not silently escape translation."""
+    from app.language.catalogue import by_key
+    from app.prompts import DANGER_QUESTIONS
+    from app.data.foods import FOODS
+
+    keys = by_key()
+    for sign, _ in DANGER_QUESTIONS:
+        assert "danger_" + sign in keys
+    for food in FOODS:
+        assert "food_" + food["key"] in keys
+
+
+def test_gonja_is_declared_unsupported_rather_than_silently_failing(db):
+    from app.language import khaya, pipeline
+    result = khaya.translate("Are you bleeding?", "gonja")
+    assert result.ok is False
+    assert "Guang" in result.error
+    assert pipeline.status(db, "gonja")["can_translate"] is False
+
+
+def test_the_shipped_corpus_speaks_real_dagbani(db):
+    """The demo must not depend on an API with a two-week quota."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    db.flush()
+    row = (db.query(Phrase)
+             .filter(Phrase.language == "dagbani",
+                     Phrase.key == "danger_bleeding").first())
+    assert row.translated_text, "the shipped corpus is empty"
+    assert row.translated_text != row.source_text
+    # Dagbani orthography uses characters English does not.
+    assert any(ch in row.translated_text for ch in "ɛɣŋʒɔɨ")
+
+
+def test_a_translation_that_is_really_an_error_page_is_rejected():
+    from app.language.khaya import validate
+    assert validate("Are you bleeding?", "<!DOCTYPE html><html>", "dagbani")
+    assert validate("Are you bleeding?", "", "dagbani")
+    assert validate("Are you bleeding?", "Are you bleeding?", "dagbani")
+    assert validate("Are you bleeding?", "A dɔɣiri kambɔŋ ni ʒim mali a?",
+                    "dagbani") is None
+
+
+def test_a_recorded_voice_is_never_overwritten_by_a_generated_one(db):
+    """Re-running the pipeline must not undo an evening in a recording room."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "dagbani",
+                        Phrase.key == "closing").first())
+    pipeline.write_audio(db, phrase, b"x" * 2000, source="recorded")
+    db.flush()
+
+    out = pipeline.speak_translated(db, "dagbani", limit=50)
+    db.expire_all()
+    again = db.get(Phrase, phrase.id)
+    assert again.audio_source == "recorded", "a human take was overwritten"
+    assert out["generated"] == 0 or again.audio_source == "recorded"
+
+
+def test_coverage_reports_what_a_caller_actually_hears(db):
+    """The honest number: translated text is not the same as a spoken clip."""
+    from app.language import pipeline
+    status = pipeline.status(db, "dagbani")
+    assert status["translated"] >= 70
+    assert status["spoken_coverage"] <= 100
+    assert status["needs_recording"] == status["total"] - status["with_audio"]

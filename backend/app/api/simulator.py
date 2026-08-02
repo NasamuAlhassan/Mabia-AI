@@ -93,10 +93,29 @@ async def press(body: PressIn, db: Session = Depends(get_db),
 
     refreshed = db.get(CallSession, body.session_id)
     return {"xml": xml, "spoken": _spoken(xml),
+            "in_language": _in_language(db, refreshed_language(db, body.session_id),
+                                        _spoken(xml)),
             "options": _options(xml),
             "state": refreshed.state if refreshed else None,
             "ended": bool(refreshed.ended_at) if refreshed else True,
             "outcome": refreshed.outcome if refreshed else None}
+
+
+def refreshed_language(db, session_id):
+    s = db.get(CallSession, session_id)
+    return s.language if s else "english"
+
+
+def _in_language(db, language: str, english: str) -> str:
+    """The same line as it would be spoken to her, if we have the wording."""
+    from ..models import Phrase
+    if not english or language == "english":
+        return ""
+    row = (db.query(Phrase)
+             .filter(Phrase.language == language,
+                     Phrase.source_text.like(english.strip()[:40] + "%"))
+             .first())
+    return row.translated_text if row and row.translated_text else ""
 
 
 def _spoken(xml: str) -> str:

@@ -14,13 +14,14 @@ import Nutrition from './pages/Nutrition'
 import Patient from './pages/Patient'
 import Setup from './pages/Setup'
 import Simulator from './pages/Simulator'
+import Voice from './pages/Voice'
 import Worklist from './pages/Worklist'
 
 const TABS = [
   { to: '/worklist', glyph: '☰', label: 'Worklist' },
   { to: '/enrol', glyph: '＋', label: 'Enrol' },
-  { to: '/simulator', glyph: '☎', label: 'Calls' },
   { to: '/nutrition', glyph: '🌾', label: 'Nutrition' },
+  { to: '/voice', glyph: '◉', label: 'Voice' },
   { to: '/setup', glyph: '⚙', label: 'Setup' },
 ]
 
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="/patients/:id" element={<Guard><Patient /></Guard>} />
         <Route path="/enrol" element={<Guard><Enrol /></Guard>} />
         <Route path="/simulator" element={<Guard><Simulator /></Guard>} />
+        <Route path="/voice" element={<Guard><Voice /></Guard>} />
         <Route path="/nutrition" element={<Guard><Nutrition /></Guard>} />
         <Route path="/facility" element={<Guard><Facility /></Guard>} />
         <Route path="/metrics" element={<Guard><Metrics /></Guard>} />

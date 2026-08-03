@@ -437,8 +437,17 @@ def run_due_contacts(db: Session, limit: int = 25) -> dict:
     placed, failed, skipped = [], [], []
     for contact in due_contacts(db)[:limit]:
         patient = db.get(Patient, contact.patient_id)
-        if patient is None or patient.status != "active" or not patient.consent:
-            contact.status = "missed"
+        # Never called and unreachable are different facts, and both were
+        # written as "missed". A woman enrolled without consent, or already
+        # delivered, showed up on a worker's screen as a contact that failed --
+        # so the response is to try the phone again, when the actual problem is
+        # that nobody may ring her at all until she has agreed.
+        if patient is None or patient.status != "active":
+            contact.status = "not_due"
+            skipped.append(contact.id)
+            continue
+        if not patient.consent:
+            contact.status = "no_consent"
             skipped.append(contact.id)
             continue
 

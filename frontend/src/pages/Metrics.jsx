@@ -79,6 +79,10 @@ export default function Metrics() {
             <Row label="Women enrolled" value={data.enrolled} />
             <Row label="Contacted on schedule" value={pct(data.reach_rate)} />
             <Row label="Antenatal contacts completed" value={pct(data.contact_completion)} />
+            {data.contacts_not_permitted > 0 && (
+              <Row label="Scheduled calls we may not make yet"
+                   value={data.contacts_not_permitted} />
+            )}
             <Row label="Taking iron and folic acid" value={pct(data.ifa_adherence)} />
             <Row label={`Women meeting MDD-W (of ${data.mdd_women_n ?? 0})`}
                  value={pct(data.mdd_women)} />
@@ -86,6 +90,14 @@ export default function Metrics() {
                  value={pct(data.mdd_children)} />
           </tbody>
         </table>
+        {data.contacts_not_permitted > 0 && (
+          <p className="muted tiny" style={{ marginTop: 12 }}>
+            Those are contacts for women who have not yet agreed to be called.
+            They are not failed calls and are kept out of the completion figure
+            above — the fix is a conversation, not another dial.
+          </p>
+        )}
+
         <p className="muted tiny" style={{ marginTop: 12 }}>
           Dietary diversity is reported by instrument — MDD-W across ten food
           groups for women, and the eight-group child indicator for 6–23 months.

@@ -3214,3 +3214,38 @@ def test_an_interrupted_paper_recall_reports_no_gaps_it_did_not_measure(client, 
     assert "flesh" not in recall["missing"]
     assert set(recall["missing"]) == {"dairy", "other_veg"}
     assert len(recall["unknown"]) == 6
+
+
+def test_a_woman_who_never_consented_is_not_recorded_as_unreachable(db):
+    """"Never called" and "could not be reached" are different facts.
+
+    Both were written as "missed", so a woman enrolled without consent appeared
+    on a worker's screen as a contact that failed -- inviting another attempt
+    at the phone, when the actual problem is that nobody may ring her at all
+    until she has agreed.
+    """
+    from app.models import Contact
+
+    patient = Patient(name="Not Consented", phone="+233240000911",
+                      community="Kpale", region="Northern", consent=False,
+                      edd=dt.date.today() + dt.timedelta(weeks=10))
+    db.add(patient)
+    db.flush()
+    contact = Contact(patient_id=patient.id, week=30,
+                      due_date=dt.date.today() - dt.timedelta(days=1),
+                      status="pending")
+    db.add(contact)
+    db.flush()
+
+    services.run_due_contacts(db)
+    db.flush()
+    assert contact.status == "no_consent", \
+        "recorded as {!r} — indistinguishable from a failed call".format(
+            contact.status)
+
+
+def test_contacts_nobody_was_allowed_to_make_are_not_counted_as_failures(client, db, auth):
+    """They dragged down the reach figure and blamed the phone network."""
+    body = client.get("/api/metrics", headers=auth).json()
+    assert "contacts_not_permitted" in body
+    assert body["contact_completion"] is None or 0 <= body["contact_completion"] <= 100

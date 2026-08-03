@@ -20,8 +20,16 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
     patients = db.query(Patient).filter(Patient.status == "active").count()
 
-    contacts = db.query(Contact).count()
+    # Contacts we were actually allowed to make. A woman enrolled without
+    # consent, or already delivered, has scheduled contacts that may never be
+    # dialled -- counting them as calls we failed to complete understates the
+    # figure and blames the phone network for a consent gap.
+    NEVER_CALLABLE = ("no_consent", "not_due")
+    contacts = db.query(Contact).filter(
+        Contact.status.notin_(NEVER_CALLABLE)).count()
     done = db.query(Contact).filter(Contact.status == "done").count()
+    not_permitted = db.query(Contact).filter(
+        Contact.status == "no_consent").count()
     reached = db.query(PatientState).filter(
         PatientState.last_contact_at.isnot(None)).count()
 
@@ -81,6 +89,7 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
         "reach_rate": _pct(reached, patients),
         "contact_completion": _pct(done, contacts),
         "ifa_adherence": _pct(ifa_yes, ifa_known),
+        "contacts_not_permitted": not_permitted,
         "mdd_women": _pct(women_ok, len(women)),
         "mdd_women_n": len(women),
         "mdd_children": _pct(children_ok, len(children)),

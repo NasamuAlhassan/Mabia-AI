@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useData, Failed, Skeleton } from '../lib/data'
 import { reasonLabel } from './Dashboard'
 import * as I from '../components/Icons'
@@ -89,19 +89,20 @@ export default function Patients() {
               {shown.map(p => (
                 <tr key={p.id} className="clickable"
                     onClick={() => navigate(`/patients/${p.id}`)}>
-                  <td>
-                    <div className="who">{p.name}</div>
+                  <td data-label="Patient name">
+                    <Link className="rowlink who" to={`/patients/${p.id}`}
+                          onClick={e => e.stopPropagation()}>{p.name}</Link>
                     <div className="sub">
                       {(p.reason_codes || []).slice(0, 1).map(reasonLabel)[0]
                        || 'No concerns recorded'}
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Risk level">
                     <span className={`pill ${RISK_PILL[p.risk_level] || 'stable'}`}>
                       {RISK_WORD[p.risk_level] || '—'}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Location">
                     <div>{p.community || '—'}</div>
                     <div className="sub">
                       {p.minutes_to_facility != null
@@ -109,11 +110,11 @@ export default function Patients() {
                         : 'Distance not recorded'}
                     </div>
                   </td>
-                  <td>{p.weeks_pregnant != null ? `${p.weeks_pregnant} weeks` : '—'}</td>
-                  <td>{p.last_contact_at
+                  <td data-label="Weeks pregnant">{p.weeks_pregnant != null ? `${p.weeks_pregnant} weeks` : '—'}</td>
+                  <td data-label="Last contact">{p.last_contact_at
                         ? new Date(p.last_contact_at).toLocaleDateString()
                         : <span className="muted">Never</span>}</td>
-                  <td>
+                  <td data-label="Status">
                     <span className={`pill ${STATUS[p.risk_level] || 'stable'}`}>
                       {STATUS_WORD[p.risk_level] || '—'}
                     </span>
@@ -122,7 +123,7 @@ export default function Patients() {
                 </tr>
               ))}
               {shown.length === 0 && (
-                <tr><td colSpan={7} className="muted tiny" style={{ padding: 22 }}>
+                <tr><td data-label="Patient name" colSpan={7} className="muted tiny" style={{ padding: 22 }}>
                   Nobody matches that. Clear the search to see the whole list.
                 </td></tr>
               )}

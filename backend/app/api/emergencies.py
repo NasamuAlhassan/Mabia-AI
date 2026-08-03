@@ -1,4 +1,5 @@
 """Emergencies: validation, dispatch, and the outcome that closes the loop."""
+import datetime as dt
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -98,6 +99,45 @@ def record_outcome(emergency_id: str, body: OutcomeIn,
         raise HTTPException(409, "This case is already closed.")
 
     services.close_emergency(db, emergency, user, body.outcome, body.note)
+    db.commit()
+    return _view(db, emergency)
+
+
+class CancelIn(BaseModel):
+    reason: str = ""
+
+
+@router.post("/{emergency_id}/cancel")
+def cancel(emergency_id: str, body: CancelIn, db: Session = Depends(get_db),
+           user: User = Depends(current_user)):
+    """Dismiss a case nobody has acted on yet. A mis-pressed key, mostly.
+
+    Refusing /outcome on an unconfirmed emergency was right -- there is no
+    outcome before anything is done -- but it left no exit at all. The only way
+    out was to CONFIRM the false alarm, which texts the family the one message
+    this codebase calls unretractable and rings a driver, purely to earn the
+    right to write "false alarm" afterwards. Meanwhile the open case forced her
+    to RED and swallowed any repeat of the same danger sign.
+
+    Only before confirmation. Once a human has acted, the case has a history
+    and is closed with an outcome instead.
+    """
+    emergency = _reachable(db, emergency_id, user)
+    if emergency.status != "pending_validation":
+        raise HTTPException(
+            409, "This emergency has already been confirmed. Record what "
+                 "happened instead of cancelling it.")
+
+    emergency.status = "cancelled"
+    emergency.outcome = "cancelled"
+    emergency.outcome_note = (body.reason or "").strip()[:200]
+    emergency.closed_at = dt.datetime.utcnow()
+    services.ev.record(db, patient_id=emergency.patient_id, actor_id=user.id,
+                       event_type=services.ev.RED_CLOSED,
+                       payload={"emergency_id": emergency.id,
+                                "outcome": "cancelled",
+                                "note": emergency.outcome_note})
+    services.ev.refresh_state(db, emergency.patient_id)
     db.commit()
     return _view(db, emergency)
 

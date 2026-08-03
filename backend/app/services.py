@@ -61,14 +61,26 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
                       event_type=ev.EMERGENCY_RAISED,
                       payload={"emergency_id": open_already.id,
                                "reasons": fresh, "escalation": True})
+            # A woman reporting bleeding on top of an open case is the
+            # highest-acuity event this system handles, and this was the one
+            # branch with neither a failure check nor a fallback when no worker
+            # is assigned. The fresh-RED branch below has both.
+            body = "WORSE: {}, {}. Now also {}.".format(
+                patient.name, patient.community, labels_for(fresh))
             cho = (db.get(User, patient.assigned_cho_id)
                    if patient.assigned_cho_id else None)
-            if cho:
-                tel.send_sms(db, cho.phone,
-                             "WORSE: {}, {}. Now also {}.".format(
-                                 patient.name, patient.community,
-                                 labels_for(fresh)),
-                             kind="red_alert", patient_id=patient.id)
+            if cho is None:
+                _alert_any_cho(db, body)
+                open_already.alert_failed = True
+                open_already.alert_error = (
+                    "No health worker is assigned to this patient.")
+            else:
+                sent = tel.send_sms(db, cho.phone, body, kind="red_alert",
+                                    patient_id=patient.id)
+                if _failed(sent):
+                    open_already.alert_failed = True
+                    open_already.alert_error = (sent.error or "")[:200]
+            db.flush()
         return open_already
 
     emergency = Emergency(patient_id=patient.id, reason_codes=reason_codes,
@@ -124,7 +136,8 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
     return emergency
 
 
-def alert_care_circle(db: Session, patient: Patient, reason_text: str) -> int:
+def alert_care_circle(db: Session, patient: Patient, reason_text: str,
+                      emergency: Optional[Emergency] = None) -> int:
     """Tell the people who actually determine whether she leaves the compound.
 
     Alerting only the health worker assumes the woman decides for herself and
@@ -148,16 +161,28 @@ def alert_care_circle(db: Session, patient: Patient, reason_text: str) -> int:
                  .filter(CareCircleMember.patient_id == patient.id,
                          CareCircleMember.role.in_(["decision_maker", "emergency"]))
                  .all())
-    sent = 0
+    sent, refused = 0, []
     for member in members:
         if not member.phone:
             continue
-        tel.send_sms(
+        message = tel.send_sms(
             db, member.phone,
             "Mabia: {} needs to go to the health centre now. A health worker "
             "has been told and transport is being arranged.".format(patient.name),
             kind="circle_alert", patient_id=patient.id)
-        sent += 1
+        if _failed(message):
+            refused.append(member.role.replace("_", " "))
+        else:
+            sent += 1
+
+    # The family is the mechanism for the first delay, and a refused message to
+    # them looked identical to a delivered one. If the worker is not told, she
+    # believes the household has been reached and it has not.
+    if refused and emergency is not None:
+        emergency.alert_failed = True
+        note = "Could not text: {}.".format(", ".join(refused))
+        emergency.alert_error = ((emergency.alert_error or "") + " " + note).strip()[:200]
+        db.flush()
     return sent
 
 
@@ -186,7 +211,8 @@ def validate_emergency(db: Session, emergency: Emergency, user: User) -> Emergen
     patient = db.get(Patient, emergency.patient_id)
     if patient is not None:
         alert_care_circle(db, patient,
-                          labels_for(emergency.reason_codes or []) or "danger signs")
+                          labels_for(emergency.reason_codes or []) or "danger signs",
+                          emergency=emergency)
     return emergency
 
 
@@ -245,6 +271,15 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
         vehicle_rank.get(d.vehicle_type, 4),
         -d.response_rate,
         d.name))
+
+
+def _nobody_is_coming(db: Session, emergency: Emergency) -> bool:
+    """Whether this case still needs a vehicle found for it."""
+    if emergency.status in ("transporting", "arrived", "closed", "cancelled"):
+        return False
+    return not (db.query(Dispatch)
+                  .filter(Dispatch.emergency_id == emergency.id,
+                          Dispatch.status == "accepted").count())
 
 
 def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
@@ -367,7 +402,15 @@ def driver_responded(db: Session, dispatch: Dispatch, accepted: bool) -> Dispatc
         notify_facility(db, emergency)
     else:
         db.flush()
-        offer_next_driver(db, emergency)
+        # Only if nobody is already coming. The gate added last commit closed
+        # the accept direction and left this one open: a LOSING driver pressing
+        # 2 after another had accepted rewound the case from transporting back
+        # to dispatching, rang and paid a second vehicle, and -- if he was the
+        # last in the queue -- flipped it to no_transport and texted the health
+        # worker that nobody had accepted, while a driver was on the road. It
+        # would even un-mark an arrival.
+        if _nobody_is_coming(db, emergency):
+            offer_next_driver(db, emergency)
     return dispatch
 
 

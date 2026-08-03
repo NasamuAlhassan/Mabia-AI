@@ -266,6 +266,13 @@ a { color: inherit; }
 .table tr:last-child td { border-bottom: 0; }
 .table tbody tr.clickable { cursor: pointer; }
 .table tbody tr.clickable:hover { background: var(--line-soft); }
+.table tbody tr.clickable:focus-within { background: var(--line-soft); outline: 2px solid var(--green); outline-offset: -2px; }
+/* The row is reached by the link in its first cell, which covers the cell so
+   the whole row still reads as one target. A div with an onClick has no
+   keyboard path at all, and that is how every patient record became
+   unreachable without a mouse. */
+.table .rowlink { display: block; color: inherit; text-decoration: none; }
+.table .rowlink:focus-visible { outline: none; }
 .table .who { font-weight: 600; }
 .table .sub { color: var(--muted); font-size: 12.5px; }
 .table .chev { color: var(--muted); text-align: right; width: 34px; }
@@ -489,8 +496,21 @@ label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
 
 @media (max-width: 560px) {
   .factgrid { grid-template-columns: 1fr; }
-  .table th:nth-child(n+4), .table td:nth-child(n+4) { display: none; }
-  .table th:last-child, .table td:last-child { display: table-cell; }
+
+  /* Stacked, not truncated. Cutting every column past the third hid weeks
+     pregnant -- the first thing anyone reads about a pregnant woman -- and hid
+     the overdue pill that is the whole point of the visits screen, on the one
+     device this is built for. */
+  .table thead { display: none; }
+  .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+  .table tr { border-bottom: 1px solid var(--line); padding: 10px 14px; position: relative; }
+  .table tr:last-child { border-bottom: 0; }
+  .table td { border: 0; padding: 2px 0; }
+  .table td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--muted); font-size: 12px; margin-right: 6px;
+  }
+  .table .chev { position: absolute; right: 12px; top: 14px; }
 }
 
 @media print { .rail, .topbar, .syncbar, .tabbar { display: none; } }

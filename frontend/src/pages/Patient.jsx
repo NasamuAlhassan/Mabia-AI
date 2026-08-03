@@ -38,7 +38,8 @@ export default function Patient() {
   if (loading && !p) return <Skeleton rows={4} />
   if (!p) return <><BackLink /><Failed error={error} onRetry={reload} /></>
 
-  const open = (p.emergencies || []).find(e => e.status !== 'closed')
+  const open = (p.emergencies || []).find(
+    e => !['closed', 'cancelled'].includes(e.status))
   const initials = (p.name || '').split(' ').filter(Boolean)
     .slice(0, 2).map(w => w[0]).join('').toUpperCase()
   const RISK = { red: 'HIGH RISK', amber: 'MEDIUM RISK', green: 'LOW RISK' }
@@ -48,7 +49,8 @@ export default function Patient() {
     return (
       <>
         <BackLink to={`/patients/${p.id}`} label={`Back to ${p.name}`} />
-        <VisitFlow patient={p} onDone={() => { setMode('read'); reload() }}
+        <VisitFlow patient={p} startingNote={note}
+                   onDone={() => { setMode('read'); setNote(''); reload() }}
                    onCancel={() => setMode('read')} />
       </>
     )
@@ -186,11 +188,31 @@ export default function Patient() {
                 </p>
                 {open.alert_failed && (
                   <div className="notice bad tiny" style={{ marginBottom: 12 }}>
-                    The text message to her health worker did not send. Reach
-                    her another way.
+                    {open.alert_error
+                      || 'The text message to her health worker did not send.'}
+                    {' '}Reach her another way.
                   </div>
                 )}
-                <Outcome id={open.id} onDone={reload} />
+
+                {open.status === 'pending_validation' ? (
+                  <div className="stack">
+                    <p className="tiny" style={{ margin: 0 }}>
+                      Nothing has been sent to her family and no driver has been
+                      called. Confirming does both.
+                    </p>
+                    <CriticalAction
+                      path={`/api/emergencies/${open.id}/validate`}
+                      label="Confirm and call a driver"
+                      busyLabel="Calling a driver…"
+                      doneLabel="Confirmed"
+                      className="danger"
+                      holdMs={700}
+                      onDone={reload} />
+                    <CancelEmergency id={open.id} onDone={reload} />
+                  </div>
+                ) : (
+                  <Outcome id={open.id} onDone={reload} />
+                )}
               </div>
             </div>
           )}
@@ -221,9 +243,14 @@ export default function Patient() {
                         placeholder="Add a note for the next visit…"
                         onChange={e => setNote(e.target.value)} />
               <p className="muted tiny" style={{ margin: 0 }}>
-                Notes are saved with a visit, so they carry the date and who
-                wrote them. Record a visit to keep this.
+                A note belongs to a visit, so it carries the date and who wrote
+                it. This carries yours into the visit form rather than losing
+                it — which is what the box used to do.
               </p>
+              <button className="wide" disabled={!note.trim()}
+                      onClick={() => setMode('visit')}>
+                Record a visit with this note
+              </button>
             </div>
           </div>
 
@@ -276,12 +303,12 @@ export default function Patient() {
 }
 
 
-function VisitFlow({ patient, onDone, onCancel }) {
+function VisitFlow({ patient, onDone, onCancel, startingNote = '' }) {
   const [answers, setAnswers] = useState({})     // key -> true | false (absent = not asked)
   const [muacMother, setMuacMother] = useState('')
   const [muacChild, setMuacChild] = useState('')
   const [ifa, setIfa] = useState('')
-  const [note, setNote] = useState('')
+  const [note, setNote] = useState(startingNote)
   const [state, setState] = useState('idle')
   const [message, setMessage] = useState('')
 
@@ -410,6 +437,39 @@ function VisitFlow({ patient, onDone, onCancel }) {
     </div>
   )
 }
+
+function CancelEmergency({ id, onDone }) {
+  // A mis-pressed key needs a way out that is not "confirm it and then write
+  // false alarm" -- confirming texts the family the one message this codebase
+  // calls unretractable, and rings a driver.
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+
+  if (!open) {
+    return (
+      <button className="quiet small" onClick={() => setOpen(true)}>
+        This was a mistake
+      </button>
+    )
+  }
+  return (
+    <div className="stack">
+      <label htmlFor="cancel-why">Why is this not an emergency?</label>
+      <input id="cancel-why" value={reason} autoFocus
+             placeholder="Pressed by mistake, wrong number…"
+             onChange={e => setReason(e.target.value)} />
+      <div className="row" style={{ gap: 8 }}>
+        <CriticalAction path={`/api/emergencies/${id}/cancel`}
+                        body={{ reason }}
+                        label="Dismiss this emergency"
+                        busyLabel="Dismissing…" doneLabel="Dismissed"
+                        holdMs={500} onDone={onDone} />
+        <button className="small" onClick={() => setOpen(false)}>Keep it</button>
+      </div>
+    </div>
+  )
+}
+
 
 function Outcome({ id, onDone }) {
   const [outcome, setOutcome] = useState('care_received')

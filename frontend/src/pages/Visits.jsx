@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useData, Failed, Skeleton } from '../lib/data'
 import * as I from '../components/Icons'
 
@@ -84,16 +84,19 @@ export default function Visits() {
               {shown.map(c => (
                 <tr key={c.contact_id} className={c.patient_id ? 'clickable' : ''}
                     onClick={() => c.patient_id && navigate(`/patients/${c.patient_id}`)}>
-                  <td>
-                    <div className="who">{c.name}</div>
+                  <td data-label="Patient">
+                    {c.patient_id
+                      ? <Link className="rowlink who" to={`/patients/${c.patient_id}`}
+                              onClick={e => e.stopPropagation()}>{c.name}</Link>
+                      : <div className="who">{c.name}</div>}
                     <div className="sub">{c.community}</div>
                   </td>
-                  <td>Week {c.week}</td>
-                  <td>
+                  <td data-label="Contact">Week {c.week}</td>
+                  <td data-label="Due">
                     {c.due_date ? new Date(c.due_date).toLocaleDateString() : '—'}
 
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <span className={`pill ${c.overdue ? 'medium' : 'plain'}`}>
                       {c.overdue ? 'Overdue' : 'Scheduled'}
                     </span>
@@ -105,7 +108,7 @@ export default function Visits() {
                 </tr>
               ))}
               {shown.length === 0 && (
-                <tr><td colSpan={5} className="muted tiny" style={{ padding: 22 }}>
+                <tr><td data-label="Patient" colSpan={5} className="muted tiny" style={{ padding: 22 }}>
                   Nothing due. The scheduler places these calls itself, whether
                   or not anyone has signal.
                 </td></tr>

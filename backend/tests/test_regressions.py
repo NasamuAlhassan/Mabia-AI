@@ -3708,3 +3708,170 @@ def test_a_second_hotline_call_still_alerts_a_human(db):
         Message.patient_id == patient.id).count()
     assert after_second > after_first, \
         "she rang the emergency line again and nobody was told"
+
+
+def test_a_declining_driver_does_not_undispatch_the_one_already_coming(db):
+    """The gate closed the accept direction and left the decline one open.
+
+    A losing driver pressing 2 after another had accepted rewound the case from
+    transporting back to dispatching, rang and paid a second vehicle, and -- if
+    he was last in the queue -- flipped it to no_transport and texted the health
+    worker that nobody had accepted, while a driver was on the road.
+    """
+    from app.models import Dispatch
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Two Offers", phone="+233240000951", community="Kpale",
+                      region="Northern", consent=True, assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    services.offer_next_driver(db, emergency)
+    services.offer_next_driver(db, emergency)
+    db.flush()
+
+    offered = (db.query(Dispatch)
+                 .filter(Dispatch.emergency_id == emergency.id)
+                 .order_by(Dispatch.position).all())
+    assert len(offered) >= 2, "fixture expects two drivers offered"
+
+    services.driver_responded(db, offered[0], True)
+    db.flush()
+    assert emergency.status == "transporting"
+
+    services.driver_responded(db, offered[1], False)
+    db.flush()
+    assert emergency.status == "transporting", \
+        "a decline from a losing driver un-dispatched the winning one"
+    assert db.query(Dispatch).filter(
+        Dispatch.emergency_id == emergency.id).count() == len(offered), \
+        "a second vehicle was rung after one had already accepted"
+
+
+def test_a_mispressed_key_can_be_dismissed_without_alarming_the_family(client, db, auth):
+    """Refusing /outcome on an unconfirmed case left no exit at all.
+
+    The only way out was to CONFIRM the false alarm -- which texts the family
+    the one message this codebase calls unretractable and rings a driver --
+    purely to earn the right to write "false alarm" afterwards.
+    """
+    from app.models import CareCircleMember, Message, PatientState
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Mispress", phone="+233240000952", community="Kpale",
+                      region="Northern", consent=True, assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    db.add(CareCircleMember(patient_id=patient.id, role="decision_maker",
+                            name="Her husband", phone="+233240000953"))
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.commit()
+
+    family_before = db.query(Message).filter(
+        Message.kind == "circle_alert").count()
+    r = client.post("/api/emergencies/{}/cancel".format(emergency.id),
+                    headers=auth, json={"reason": "pressed by mistake"})
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    assert db.get(Emergency, emergency.id).status == "cancelled"
+    assert db.query(Message).filter(
+        Message.kind == "circle_alert").count() == family_before, \
+        "dismissing a false alarm still alarmed the family"
+    assert db.get(PatientState, patient.id).risk_level != "red", \
+        "the dismissed case still forces her to red"
+
+    # And she can report the same sign again without it being swallowed.
+    again = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+    assert again.id != emergency.id
+    assert again.status == "pending_validation"
+
+
+def test_a_confirmed_case_cannot_be_dismissed_as_a_mistake(client, db, auth):
+    """Once a human has acted the case has a history; it closes with an
+    outcome, not by being wished away."""
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Already Acted", phone="+233240000954",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    db.commit()
+
+    assert client.post("/api/emergencies/{}/cancel".format(emergency.id),
+                       headers=auth, json={"reason": "oops"}
+                       ).status_code == 409
+
+
+def test_the_worsening_alert_is_checked_like_the_first_one(db):
+    """A woman reporting bleeding on top of an open case is the highest-acuity
+    event here, and it was the one branch with neither a failure check nor a
+    fallback when nobody is assigned."""
+    from app.telephony import service as tel
+
+    patient = Patient(name="Got Worse", phone="+233240000955", community="Kpale",
+                      region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    first = services.raise_emergency(db, patient, ["sign.fever"], "ivr")
+    db.flush()
+
+    before = db.query(Message).count()
+    services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+    assert db.query(Message).count() > before, \
+        "a worsening for an unassigned household reached nobody"
+    assert first.alert_failed is True
+
+
+def test_a_refused_family_alert_is_recorded(db):
+    """A refused message to the family looked identical to a delivered one, so
+    a worker believed the household had been reached when it had not."""
+    from app.telephony import service as tel
+    from app.models import CareCircleMember
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Family Unreachable", phone="+233240000956",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    db.add(CareCircleMember(patient_id=patient.id, role="decision_maker",
+                            name="Him", phone="+233240000957"))
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+
+    original = tel.send_sms
+
+    def refused(db_, to, body, kind="alert", patient_id=None):
+        row = Message(to_phone=to, body=body, kind=kind, patient_id=patient_id,
+                      provider="simulator", status="failed", error="no credit")
+        db_.add(row)
+        db_.flush()
+        return row
+
+    tel.send_sms = refused
+    try:
+        services.validate_emergency(db, emergency, worker)
+        db.flush()
+    finally:
+        tel.send_sms = original
+
+    assert emergency.alert_failed is True
+    assert "Could not text" in (emergency.alert_error or "")
+
+
+def test_the_patient_record_carries_whether_the_alert_sent(client, db, auth):
+    """The banner reading it lives on that page and the field was only on the
+    list endpoint, so it could never render where a worker actually looks."""
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    body = client.get("/api/patients/{}".format(patient.id), headers=auth).json()
+    assert body["emergencies"], "fixture expects an emergency on her record"
+    assert "alert_failed" in body["emergencies"][0]
+    assert "validated_at" in body["emergencies"][0]

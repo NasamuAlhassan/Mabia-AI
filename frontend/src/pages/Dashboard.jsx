@@ -90,11 +90,14 @@ export default function Dashboard() {
               {high.map(p => (
                 <tr key={p.id} className="clickable"
                     onClick={() => navigate(`/patients/${p.id}`)}>
-                  <td className="who">{p.name}</td>
-                  <td><span className="pill high">HIGH</span></td>
-                  <td>{(p.reason_codes || []).map(reasonLabel).join(', ')
+                  <td data-label="Name">
+                    <Link className="rowlink who" to={`/patients/${p.id}`}
+                          onClick={e => e.stopPropagation()}>{p.name}</Link>
+                  </td>
+                  <td data-label="Risk level"><span className="pill high">HIGH</span></td>
+                  <td data-label="Reason">{(p.reason_codes || []).map(reasonLabel).join(', ')
                        || 'Danger signs reported'}</td>
-                  <td>{p.minutes_to_facility != null
+                  <td data-label="Distance">{p.minutes_to_facility != null
                         ? `${p.minutes_to_facility} min away`
                         : <span className="muted">Not recorded</span>}</td>
                   <td className="chev"><I.Chevron /></td>
@@ -172,6 +175,12 @@ export default function Dashboard() {
                   {em.patient?.community}
                   {em.patient?.phone ? ` · ${phone(em.patient.phone)}` : ''}
                 </div>
+                {em.status === 'no_transport' && (
+                  <div className="notice bad tiny" style={{ marginBottom: 10 }}>
+                    No driver accepted. Arrange transport yourself — the family
+                    has already been told one is coming.
+                  </div>
+                )}
                 {em.alert_failed && (
                   <div className="notice bad tiny" style={{ marginBottom: 10 }}>
                     The text message to her health worker did not send. Reach
@@ -183,13 +192,13 @@ export default function Dashboard() {
                     path={`/api/emergencies/${em.id}/validate`}
                     label="Respond"
                     busyLabel="Calling…"
-                    doneLabel="Driver called"
+                    doneLabel="Confirmed"
                     className="danger"
                     holdMs={700}
                     holdHint={false}
                     onDone={() => { emergencies.reload(); list.reload() }} />
                   <button onClick={() => navigate(`/patients/${em.patient?.id}`)}>
-                    Assign driver
+                    Open record
                   </button>
                 </div>
               </div>

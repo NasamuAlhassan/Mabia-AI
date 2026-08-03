@@ -48,6 +48,16 @@ def arrived(emergency_id: str, db: Session = Depends(get_db),
     # the Three Delays funnel is measured from.
     if emergency.facility_id and user.facility_id != emergency.facility_id:
         patient_in_reach(db, emergency.patient_id, user)
+    # Arrival before anyone was dispatched falsifies the one timestamp the
+    # whole Three Delays funnel is measured from, and marking a CLOSED case as
+    # arrived resurrected it -- which then swallowed her next emergency,
+    # because raise_emergency saw an open case and returned.
+    if emergency.status in ("closed", "cancelled"):
+        raise HTTPException(409, "This case is already closed.")
+    if emergency.status == "pending_validation":
+        raise HTTPException(
+            409, "Nobody has confirmed this emergency yet, so nobody was sent.")
+
     emergency.arrived_at = dt.datetime.utcnow()
     emergency.status = "arrived"
     db.commit()

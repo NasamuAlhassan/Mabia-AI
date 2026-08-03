@@ -83,6 +83,20 @@ def record_outcome(emergency_id: str, body: OutcomeIn,
                    user: User = Depends(current_user)):
     """Proof of care, not just advice. This is the only thing that clears a RED."""
     emergency = _reachable(db, emergency_id, user)
+
+    # A brand-new RED could be retired with two taps, before anyone confirmed
+    # it, before a driver was called, before the family was told -- and the
+    # patient screen showed the form for every status except closed, so the
+    # button was right there. An outcome is a record of what happened, and
+    # nothing has happened yet on a case awaiting confirmation.
+    if emergency.status == "pending_validation":
+        raise HTTPException(
+            409, "Confirm this emergency first. There is no outcome to record "
+                 "until something has been done about it.")
+    if emergency.status in ("closed", "cancelled"):
+        # Recording twice silently overwrote the first answer.
+        raise HTTPException(409, "This case is already closed.")
+
     services.close_emergency(db, emergency, user, body.outcome, body.note)
     db.commit()
     return _view(db, emergency)

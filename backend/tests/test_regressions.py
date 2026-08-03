@@ -531,8 +531,13 @@ def test_care_received_clears_the_sign_but_not_reaching_care_does_not(db, client
         db.commit()
         assert db.get(PatientState, patient.id).risk_level == "red"
 
-        client.post("/api/emergencies/{}/outcome".format(emergency.id),
-                    headers=auth, json={"outcome": outcome, "note": ""})
+        # Through the real sequence: an outcome only exists once someone has
+        # confirmed the case and something has been done about it.
+        client.post("/api/emergencies/{}/validate".format(emergency.id),
+                    headers=auth)
+        r = client.post("/api/emergencies/{}/outcome".format(emergency.id),
+                        headers=auth, json={"outcome": outcome, "note": ""})
+        assert r.status_code == 200, r.text
         db.expire_all()
         level = db.get(PatientState, patient.id).risk_level
         assert (level == "red") is expect_red, \
@@ -3436,19 +3441,31 @@ def test_a_failed_alert_is_recorded_and_shown(db):
     db.flush()
     original = tel.send_sms
 
-    class Refused:
-        ok = False
-        error = "No Africa's Talking API key configured."
+    # A real Message row, refused. The previous stub carried an `ok` attribute
+    # that send_sms never returns, so the test passed against a dead branch.
+    def refused(db_, to, body, kind="alert", patient_id=None):
+        row = Message(to_phone=to, body=body, kind=kind, patient_id=patient_id,
+                      provider="simulator", status="failed",
+                      error="No Africa's Talking API key configured.")
+        db_.add(row)
+        db_.flush()
+        return row
 
-    tel.send_sms = lambda *a, **k: Refused()
+    tel.send_sms = refused
     try:
         emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
         db.flush()
     finally:
         tel.send_sms = original
 
-    assert emergency.alert_failed is True
+    assert emergency.alert_failed is True, \
+        "the guard tested an attribute the real return value does not have"
     assert "API key" in (emergency.alert_error or "")
+
+    # And the row really was recorded as failed, so the test cannot pass
+    # against a stub that does not resemble the thing it replaces.
+    assert db.query(Message).filter(
+        Message.kind == "red_alert", Message.status == "failed").count() >= 1
 
 
 def test_an_interrupted_paper_recall_needs_no_enumeration_to_work(client, db, auth):
@@ -3531,3 +3548,163 @@ def test_an_unregistered_number_gets_a_terminal_screen(client, db):
     r = client.post("/api/telephony/ussd", data={
         "sessionId": "ussd-stranger", "phoneNumber": "+233299999998", "text": ""})
     assert r.text.startswith("END ")
+
+
+# ------------------------------- the emergency path, swept end to end
+
+
+def test_a_late_driver_keypress_cannot_reopen_a_closed_case(db, client, auth):
+    """And the zombie then swallowed her next emergency in silence.
+
+    A driver pressing 1 after the case closed put it back to "transporting",
+    told the facility to prepare for a woman already at home, and -- worst --
+    raise_emergency then saw an open case for her, found no NEW reason code,
+    and returned having sent nothing. Her next danger sign vanished, and
+    /validate refused her because the status was no longer awaiting one.
+    """
+    from app.models import Dispatch
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Zombie Case", phone="+233240000941",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+
+    first = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, first, worker)
+    services.offer_next_driver(db, first)
+    db.flush()
+    dispatch = db.query(Dispatch).filter(
+        Dispatch.emergency_id == first.id).first()
+    assert dispatch is not None
+
+    services.close_emergency(db, first, worker, "care_received", "")
+    db.flush()
+    assert first.status == "closed"
+
+    services.driver_responded(db, dispatch, True)
+    db.flush()
+    assert first.status == "closed", "a late keypress reopened a closed case"
+
+    # And a week later she reports bleeding again. It must reach someone.
+    before = db.query(Message).filter(Message.kind == "red_alert").count()
+    second = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+    assert second.id != first.id, "her new emergency was swallowed by the old one"
+    assert second.status == "pending_validation"
+    assert db.query(Message).filter(
+        Message.kind == "red_alert").count() == before + 1
+
+
+def test_nothing_dispatches_before_a_human_confirms(db):
+    """The rule the whole product rests on, with no guard behind it."""
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Unconfirmed", phone="+233240000942",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.convulsions"], "ivr")
+    db.flush()
+
+    assert services.offer_next_driver(db, emergency) is None, \
+        "a driver was rung with no clinician in the loop"
+    assert emergency.status == "pending_validation"
+    assert emergency.validated_at is None
+
+    # And once she confirms, it works.
+    services.validate_emergency(db, emergency, worker)
+    assert services.offer_next_driver(db, emergency) is not None
+
+
+def test_an_unvalidated_emergency_cannot_be_closed(db, client, auth):
+    """Two taps on the patient screen retired a brand-new RED."""
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Too Early", phone="+233240000943",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.commit()
+
+    r = client.post("/api/emergencies/{}/outcome".format(emergency.id),
+                    headers=auth, json={"outcome": "care_received", "note": ""})
+    assert r.status_code == 409
+    db.expire_all()
+    assert db.get(Emergency, emergency.id).status == "pending_validation"
+
+    client.post("/api/emergencies/{}/validate".format(emergency.id), headers=auth)
+    assert client.post("/api/emergencies/{}/outcome".format(emergency.id),
+                       headers=auth,
+                       json={"outcome": "care_received", "note": ""}
+                       ).status_code == 200
+    # Recording it twice silently overwrote the first answer.
+    assert client.post("/api/emergencies/{}/outcome".format(emergency.id),
+                       headers=auth,
+                       json={"outcome": "not_reached", "note": ""}
+                       ).status_code == 409
+
+
+def test_arrival_cannot_be_recorded_before_anyone_was_sent(db, client, auth):
+    """It falsifies the one timestamp the Three Delays funnel is measured from."""
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Not Sent", phone="+233240000944", community="Kpale",
+                      region="Northern", consent=True, assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.commit()
+
+    assert client.post("/api/facility/{}/arrived".format(emergency.id),
+                       headers=auth).status_code == 409
+    db.expire_all()
+    assert db.get(Emergency, emergency.id).arrived_at is None
+
+
+def test_a_danger_sign_for_an_unassigned_household_still_reaches_someone(db):
+    """`if cho:` with no else, on the RED path."""
+    before = db.query(Message).count()
+    patient = Patient(name="Nobody Assigned", phone="+233240000945",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+
+    assert db.query(Message).count() > before, "the RED reached nobody at all"
+    assert emergency.alert_failed is True, \
+        "nothing recorded that no worker is assigned to her"
+
+
+def test_a_second_hotline_call_still_alerts_a_human(db):
+    """raise_emergency returned early because no reason code was new, and she
+    was told her health worker had been informed."""
+    from app.telephony import service as tel
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Rang Twice", phone="+233240000946",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+
+    def call():
+        session, _ = tel.start_call(db, phone=patient.phone,
+                                    patient_id=patient.id, purpose="hotline",
+                                    language="english")
+        db.flush()
+        services.terminal_fallback(db, session)
+        db.flush()
+
+    call()
+    after_first = db.query(Message).filter(
+        Message.patient_id == patient.id).count()
+    assert after_first > 0
+
+    call()
+    after_second = db.query(Message).filter(
+        Message.patient_id == patient.id).count()
+    assert after_second > after_first, \
+        "she rang the emergency line again and nobody was told"

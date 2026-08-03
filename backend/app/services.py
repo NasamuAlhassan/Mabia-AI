@@ -22,6 +22,19 @@ from .telephony import service as tel
 # --------------------------------------------------------------- emergencies
 
 
+def _failed(message) -> bool:
+    """Whether an SMS we tried to send did not go.
+
+    send_sms returns the Message ROW, whose field is `status`. The first
+    attempt at this guard tested `getattr(message, "ok", True)` -- an attribute
+    the row does not have -- so it was always True and the whole failure branch
+    was unreachable. The test guarding it stubbed a fake object carrying `ok`,
+    a shape the real function never returns, so it passed against dead code.
+    Every alert-failure surface in this file depended on that branch.
+    """
+    return getattr(message, "status", None) == "failed"
+
+
 def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
                     source: str = "ivr") -> Emergency:
     """Create an emergency and push an SMS to the CHO.
@@ -69,10 +82,19 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
                        "source": source})
 
     reason_text = labels_for(reason_codes) or "danger signs"
+    body = "RED: {}, {}. {}. Open Mabia to confirm.".format(
+        patient.name, patient.community, reason_text)
     cho = db.get(User, patient.assigned_cho_id) if patient.assigned_cho_id else None
+    if cho is None:
+        # No assigned worker, or her account is gone. _alert_cho already falls
+        # back to any worker on duty; the RED path -- the one that matters most
+        # -- had no else at all, so a danger sign for an unassigned household
+        # reached nobody and the emergency sat waiting for a confirmation
+        # nobody had been asked for.
+        _alert_any_cho(db, body)
+        emergency.alert_failed = True
+        emergency.alert_error = "No health worker is assigned to this patient."
     if cho:
-        body = "RED: {}, {}. {}. Open Mabia to confirm.".format(
-            patient.name, patient.community, reason_text)
         sent = tel.send_sms(db, cho.phone, body, kind="red_alert",
                             patient_id=patient.id)
         # Nobody looked at this result. A provider that refuses -- no key, a
@@ -81,7 +103,7 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
         # worker had been told, waiting for a confirmation she was never asked
         # for. This file opens by saying no call may end without a health
         # worker being informed; that rule needs to know when it failed.
-        if not getattr(sent, "ok", True):
+        if _failed(sent):
             emergency.alert_failed = True
             emergency.alert_error = (sent.error or "")[:200]
             ev.record(db, patient_id=patient.id, actor_id="system",
@@ -226,7 +248,20 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
 
 
 def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
-    """Ring the next driver in the cascade. Acceptance happens in the call."""
+    """Ring the next driver in the cascade. Acceptance happens in the call.
+
+    Never before a human has confirmed the case, and never after it closes.
+    "Nothing dispatches before a human confirms" is the rule this whole
+    product is built on, and the endpoint that calls this had no status guard:
+    a driver could be rung and texted with no clinician anywhere in the loop,
+    validated_by left empty so the audit trail showed no human, and /validate
+    then short-circuited -- so the family alert could never fire for that case
+    at all.
+    """
+    if emergency.status == "pending_validation":
+        return None
+    if not is_open(emergency):
+        return None
     patient = db.get(Patient, emergency.patient_id)
     if patient is None:
         emergency.status = "cancelled"
@@ -285,12 +320,33 @@ def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
     return None
 
 
+OPEN_STATES = ("pending_validation", "validated", "dispatching",
+               "transporting", "no_transport", "arrived")
+
+
+def is_open(emergency) -> bool:
+    """Whether this case is still live. Closed and cancelled are not."""
+    return bool(emergency) and emergency.status in OPEN_STATES
+
+
 def driver_responded(db: Session, dispatch: Dispatch, accepted: bool) -> Dispatch:
     # Two drivers both pressing 1 used to give one woman two vehicles and the
     # facility two alerts, with the UI showing whichever the ORM returned first.
     if dispatch.status != "offered":
         return dispatch
     emergency = db.get(Emergency, dispatch.emergency_id)
+
+    # A driver who presses 1 after the case is closed must not reopen it. It
+    # used to: the case went back to "transporting", the facility was told to
+    # prepare for a woman already at home, and -- worst -- raise_emergency then
+    # saw an open case for her, found no NEW reason code, and returned having
+    # sent nothing and logged nothing. Her next danger sign vanished, and
+    # /validate refused her because the status was no longer awaiting one.
+    if not is_open(emergency):
+        dispatch.status = "cancelled"
+        dispatch.responded_at = dt.datetime.utcnow()
+        db.flush()
+        return dispatch
     if accepted and emergency and any(
             d.status == "accepted" for d in emergency.dispatches):
         dispatch.status = "cancelled"
@@ -387,6 +443,14 @@ def terminal_fallback(db: Session, session: CallSession) -> str:
         reasons = list(state.reason_codes or []) if state else []
         reasons.append("hotline.nurse_unreachable")
         raise_emergency(db, patient, reasons, source="hotline")
+        # Unconditionally, not only when raise_emergency finds a new reason.
+        # The second time she rang, "nurse_unreachable" was already on the open
+        # case, so raise_emergency returned early having sent nothing -- and
+        # she was told her health worker had been informed. This function's own
+        # docstring calls this the path that must never be skipped.
+        _alert_cho(db, patient,
+                   "{} rang the hotline again and no nurse answered. "
+                   "Call her: {}".format(patient.name, patient.phone))
     else:
         _alert_any_cho(db, "A caller could not reach a nurse on the hotline. "
                            "Number: {}".format(session.phone))

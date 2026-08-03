@@ -616,3 +616,28 @@ def test_the_caseload_reports_direction_of_travel(db, client, auth):
     for other in stable:
         assert rows.index(hers) < rows.index(other), \
             "a falling child sorted below a stable one"
+
+
+def test_a_generated_clip_is_played_instead_of_english(db):
+    """The whole claim: she hears her own language, not a machine reading English."""
+    from pathlib import Path
+    from app.telephony import ivr
+    from app.models import Phrase
+
+    clip = (Path(__file__).resolve().parents[1] / "audio" / "dagbani"
+            / "danger_bleeding.mp3")
+    if not clip.exists():
+        pytest.skip("no Dagbani clip present in this checkout")
+
+    xml = ivr.speak("http://x", "dagbani", "danger_bleeding", "Are you bleeding?")
+    assert "<Play" in xml and "danger_bleeding.mp3" in xml
+    assert "<Say>" not in xml, "fell back to English despite having a clip"
+
+
+def test_lines_too_long_to_synthesise_are_reported_not_hidden(db):
+    """Khaya refuses past ~100 characters. Silently failing would look like a bug."""
+    from app.language import pipeline
+    status = pipeline.status(db, "dagbani")
+    assert "too_long" in status
+    for row in status["too_long"]:
+        assert row["chars"] > pipeline.MAX_SPOKEN_CHARS

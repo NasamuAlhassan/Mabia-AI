@@ -33,6 +33,12 @@ from .catalogue import catalogue
 
 AUDIO_ROOT = Path(__file__).resolve().parents[2] / "audio"
 
+# Khaya's synthesis refuses text much beyond this, which is inconvenient and
+# also correct: a prompt that cannot be synthesised in one clip is a prompt a
+# woman on a poor line was never going to absorb in one breath either. Measured
+# against the live service: 100 characters succeeds, 120 returns HTTP 400.
+MAX_SPOKEN_CHARS = 100
+
 SPEAKABLE = ["dagbani", "kusaal", "frafra"]     # Khaya has models for these
 RECORD_ONLY = ["gonja"]                          # no model; human voice only
 ALL_LANGUAGES = SPEAKABLE + RECORD_ONLY
@@ -183,6 +189,20 @@ def write_audio(db: Session, phrase: Phrase, data: bytes,
     return phrase
 
 
+def too_long_to_speak(db: Session, language: str):
+    """Lines that cannot be synthesised as one clip, and should be shortened.
+
+    Reported rather than silently failed: each one is a prompt to rewrite, not a
+    bug to work around.
+    """
+    rows = (db.query(Phrase)
+              .filter(Phrase.language == language,
+                      Phrase.translated_text.isnot(None)).all())
+    return [{"key": p.key, "chars": len(p.translated_text),
+             "category": p.category}
+            for p in rows if len(p.translated_text) > MAX_SPOKEN_CHARS]
+
+
 def needs_recording_count(db: Session, language: str) -> int:
     return (db.query(Phrase)
               .filter(Phrase.language == language,
@@ -210,6 +230,7 @@ def status(db: Session, language: str) -> Dict:
         # What a caller actually hears today, which is the only number that
         # matters for the claim "we speak her language".
         "spoken_coverage": round(100.0 * with_audio / total, 1) if total else 0.0,
+        "too_long": too_long_to_speak(db, language),
     }
 
 

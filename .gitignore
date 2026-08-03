@@ -12,8 +12,8 @@ build/
 coverage/
 .pytest_cache/
 
-# Generated or recorded audio: never committed. Clips are produced by the
-# Khaya pipeline, recorded through the Voice screen, or generated locally by
-# backend/scripts_generate_placeholder_audio.py.
-backend/audio/**/*.wav
-backend/audio/**/*.mp3
+# Placeholder English audio is a build artifact and is not committed. Real
+# local-language clips ARE content -- without them the deployed demo speaks
+# English -- so they ship.
+backend/audio/english/*.wav
+backend/audio/english/*.mp3

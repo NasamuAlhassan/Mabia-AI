@@ -165,8 +165,7 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             session.state = GREET
             session.transcript = transcript
             db.flush()
-            text = "{} {} {}".format(prompts.line("greet"), prompts.line("consent"),
-                                     prompts.line("escape_hint"))
+            text = "{} {}".format(prompts.line("greet"), prompts.line("consent"))
             return Turn(ask(base_url, language, "greet_consent", text, callback_url))
         if digit not in ("1", "2"):
             session.transcript = transcript
@@ -188,7 +187,12 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         session.transcript = transcript
         db.flush()
         key, text = DANGER_QUESTIONS[0]
-        return Turn(ask(base_url, language, "danger_" + key, text, callback_url))
+        # She has agreed to talk, so now tell her how to reach a person. Said
+        # here rather than in the greeting: it is only useful once she is in the
+        # conversation, and it kept the greeting past the synthesis ceiling.
+        return Turn(ask(base_url, language, "danger_" + key,
+                        "{} {}".format(prompts.line("escape_hint"), text),
+                        callback_url))
 
     # --- danger signs ----------------------------------------------------
     if state == DANGER:

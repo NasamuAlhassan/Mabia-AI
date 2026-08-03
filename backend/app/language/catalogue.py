@@ -10,18 +10,22 @@ from .. import prompts
 from ..data.foods import FOODS
 from ..engines.nutrition import MDD_CHILD, MDD_W, questions
 
-# Lines that are never spoken to a caller — internal or English-only.
+# Lines that are never spoken to a caller on their own.
 SKIP = {"escape_hint"}
 
 
 def catalogue() -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
 
-    # The greeting is spoken as one breath, so it is one clip.
+    # Greeting and consent are one breath. The escape hint is deliberately not
+    # part of it: together they run past the synthesis ceiling, and telling her
+    # about pressing 9 before she has agreed to talk is telling her too early.
     out.append({
         "key": "greet_consent", "category": "script",
-        "text": "{} {} {}".format(prompts.line("greet"), prompts.line("consent"),
-                                  prompts.line("escape_hint"))})
+        "text": "{} {}".format(prompts.line("greet"), prompts.line("consent"))})
+    out.append({
+        "key": "escape_hint", "category": "script",
+        "text": prompts.line("escape_hint")})
 
     for key, text in prompts.DANGER_QUESTIONS:
         out.append({"key": "danger_" + key, "category": "script", "text": text})

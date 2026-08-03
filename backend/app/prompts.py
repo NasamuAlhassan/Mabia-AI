@@ -34,7 +34,7 @@ BIRTH_PLAN_QUESTION = (
     "blood? Press 1 for yes, 2 for not yet.")
 
 SCRIPT = {
-    "greet": "Hello. This is Mabia, calling about your pregnancy care.",
+    "greet": "Hello. This is Mabia, about your pregnancy.",
     "consent": "Is this a good time to talk? Press 1 for yes, 2 for later.",
     "reschedule": "That is fine. We will call you another time. Goodbye.",
     "escape_hint": "At any time, press 9 to speak to a nurse.",

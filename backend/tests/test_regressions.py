@@ -797,3 +797,41 @@ def test_adoption_never_overwrites_a_human_recording(db):
     db.expire_all()
     again = db.get(Phrase, phrase.id)
     assert again.audio_source == "recorded"
+
+
+def test_the_greeting_now_fits_the_synthesis_ceiling(db):
+    """It was 148 characters and could not be spoken in any language."""
+    from app.language import pipeline
+    from app.language.catalogue import by_key
+
+    catalogue = by_key()
+    assert len(catalogue["greet_consent"]["text"]) <= 110
+    assert "press 9" not in catalogue["greet_consent"]["text"].lower(), \
+        "the escape hint belongs after she agrees to talk, not in the greeting"
+    assert "9" in catalogue["escape_hint"]["text"]
+
+    pipeline.sync_catalogue(db, "dagbani")
+    db.flush()
+    over = {row["key"] for row in pipeline.too_long_to_speak(db, "dagbani")}
+    assert "greet_consent" not in over, "the greeting is still unsynthesisable"
+
+
+def test_the_escape_hint_is_spoken_once_she_has_agreed(db):
+    """Told at a point she can use it, rather than tacked onto a greeting."""
+    from app.telephony import ivr
+    from app.models import Patient
+
+    patient = db.query(Patient).first()
+    session = CallSession(id="hint-order", patient_id=patient.id,
+                          phone=patient.phone, purpose="outreach",
+                          language="english", state="greet", answers={},
+                          transcript=[])
+    db.add(session)
+    db.flush()
+
+    greeting = ivr.advance(db, session, None, "", "http://x/cb").xml
+    assert "press 9" not in greeting.lower()
+
+    after_consent = ivr.advance(db, session, "1", "", "http://x/cb").xml
+    assert "press 9" in after_consent.lower(), \
+        "she was never told how to reach a person"

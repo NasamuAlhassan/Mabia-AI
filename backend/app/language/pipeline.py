@@ -33,6 +33,39 @@ from .catalogue import catalogue
 
 AUDIO_ROOT = Path(__file__).resolve().parents[2] / "audio"
 
+# Magic numbers for the container formats a telephony provider can actually
+# fetch and play. Checked because the alternative is what already happened: a
+# 2 kB test fixture of the letter "x" was written to disk, adopted as audio by
+# its file extension, counted toward spoken coverage, served in production, and
+# played at the end of every Dagbani call -- which is to say, silence, in the
+# system whose README promises no call ever ends silently.
+AUDIO_MAGIC = (
+    b"RIFF",          # WAV
+    b"ID3",           # MP3 with an ID3 tag
+    b"\xff\xfb", b"\xff\xf3", b"\xff\xf2",   # bare MPEG frame
+    b"OggS",          # Ogg
+    b"fLaC",
+)
+
+# webm/opus is what a browser MediaRecorder produces. It plays in an <audio>
+# tag, so a recording made in the workbench looks fine -- and it is not
+# something a GSM call can play, which is the only place it matters.
+REJECTED_MAGIC = {b"\x1a\x45\xdf\xa3": "webm or matroska"}
+
+
+def looks_like_audio(data: bytes):
+    """(ok, reason). Reason is human-facing; it is shown to whoever uploaded."""
+    if len(data) < 512:
+        return False, "the file is too small to be a recording"
+    head = data[:4]
+    for magic, name in REJECTED_MAGIC.items():
+        if data.startswith(magic):
+            return False, ("this is {}, which plays in a browser but not on a "
+                           "phone call. Save it as WAV and upload again".format(name))
+    if any(head.startswith(m) for m in AUDIO_MAGIC):
+        return True, None
+    return False, "this does not look like an audio file"
+
 # Khaya's synthesis refuses text much beyond this, which is inconvenient and
 # also correct: a prompt that cannot be synthesised in one clip is a prompt a
 # woman on a poor line was never going to absorb in one breath either. Measured
@@ -110,7 +143,14 @@ def adopt_audio_on_disk(db: Session, language: str) -> int:
 
     on_disk = {}
     for path in folder.iterdir():
-        if path.suffix.lower() in (".wav", ".mp3"):
+        if path.suffix.lower() not in (".wav", ".mp3"):
+            continue
+        # An extension is a claim, not evidence. Read the header.
+        try:
+            ok, _ = looks_like_audio(path.read_bytes()[:1024])
+        except OSError:
+            continue
+        if ok:
             on_disk.setdefault(path.stem, path)
 
     adopted = 0
@@ -286,6 +326,9 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
 def write_audio(db: Session, phrase: Phrase, data: bytes,
                 source: str = "recorded") -> Phrase:
     """Put audio on disk where the IVR and Africa's Talking already look."""
+    ok, reason = looks_like_audio(data)
+    if not ok:
+        raise ValueError(reason)
     folder = AUDIO_ROOT / phrase.language
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / (phrase.key + ".wav")

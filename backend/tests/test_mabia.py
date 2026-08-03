@@ -394,17 +394,17 @@ def test_a_full_call_runs_and_folds_into_the_log(db, client, auth):
     assert "GetDigits" in first["xml"]
 
     press("1")                       # yes, a good time
-    for _ in range(4):
-        press("2")                   # no to the first four danger signs
-    last = press("1")                # yes to reduced fetal movement
-    final = press("1")               # birth plan ready
+    press("1")                       # yes, bleeding
+    for _ in range(5):               # no to whatever else is asked
+        press("2")
+    press("1")                       # birth plan ready
 
     db.expire_all()
     refreshed = db.get(CallSession, session.id)
     assert refreshed.ended_at is not None
     state = db.get(PatientState, patient.id)
-    assert state.risk_level == RED, "reduced fetal movement is an emergency"
-    assert "sign.reduced_fetal_movement" in (state.reason_codes or [])
+    assert state.risk_level == RED, "bleeding is an emergency"
+    assert "sign.bleeding" in (state.reason_codes or [])
 
 
 def test_prompts_stay_short_enough_to_finish_on_a_bad_line():

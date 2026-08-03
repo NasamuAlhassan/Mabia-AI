@@ -414,7 +414,19 @@ def test_a_recorded_voice_is_never_overwritten_by_a_generated_one(db):
     phrase = (db.query(Phrase)
                 .filter(Phrase.language == "dagbani",
                         Phrase.key == "closing").first())
-    pipeline.write_audio(db, phrase, b"x" * 2000, source="recorded")
+    # A real WAV header, because write_audio now refuses anything that is not
+    # audio. That check exists because a 2 kB run of the letter "x" -- written
+    # by an earlier version of this very test -- reached production and every
+    # Dagbani call ended on it.
+    import io
+    import wave
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x01" * 8000)
+    pipeline.write_audio(db, phrase, buffer.getvalue(), source="recorded")
     db.flush()
 
     out = pipeline.speak_translated(db, "dagbani", limit=50)
@@ -629,7 +641,8 @@ def test_a_generated_clip_is_played_instead_of_english(db):
     if not clip.exists():
         pytest.skip("no Dagbani clip present in this checkout")
 
-    xml = ivr.speak("http://x", "dagbani", "danger_bleeding", "Are you bleeding?")
+    xml = ivr.speak(db, "http://x", "dagbani", "danger_bleeding",
+                    "Are you bleeding?")
     assert "<Play" in xml and "danger_bleeding.mp3" in xml
     assert "<Say>" not in xml, "fell back to English despite having a clip"
 
@@ -762,7 +775,12 @@ def test_shipped_audio_is_found_when_the_database_is_new(db):
     from app.models import Phrase
 
     folder = Path(__file__).resolve().parents[1] / "audio" / "kusaal"
-    clips = list(folder.glob("*.wav")) if folder.is_dir() else []
+    known = {p.key for p in db.query(Phrase).filter(
+        Phrase.language == "kusaal").all()}
+    # Only clips whose name matches a phrase can be adopted. A stray file is
+    # deliberately left alone rather than guessed at.
+    clips = [f for f in folder.glob("*.wav") if f.stem in known] \
+        if folder.is_dir() else []
     if not clips:
         pytest.skip("no Kusaal clips in this checkout")
 
@@ -897,3 +915,121 @@ def test_stale_lines_are_re_translated_when_credits_return(db):
                  .count())
     out = pipeline.translate_pending(db, "dagbani", limit=0)
     assert out["remaining"] == pending
+
+
+# ------------------------------------------- the call speaks her language
+
+
+def test_a_dagbani_call_is_actually_in_dagbani(db):
+    """The corpus existed, the pipeline existed, and nothing read either.
+
+    spoken_text() was defined and called from nowhere, so seventeen of eighteen
+    prompts played English while the translations sat in a table three lines
+    away from the code ignoring them.
+    """
+    import re
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    patient.language = "dagbani"
+    db.flush()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="dagbani")
+    db.flush()
+
+    spoken = []
+    for digit in (None, "1", "1", "2", "2", "2", "1", "1"):
+        turn = ivr.advance(db, session, digit, "http://x", "http://x/cb")
+        said = re.search(r"<Say>(.*?)</Say>", turn.xml, re.S)
+        if said:
+            spoken.append(said.group(1))
+        if turn.finished:
+            break
+
+    assert spoken, "the call said nothing"
+    # Dagbani orthography uses characters English does not.
+    for line in spoken:
+        assert any(ch in line for ch in "ɛɣŋʒɔɨɩʋ"), \
+            "spoken in English, not Dagbani: {}".format(line[:70])
+
+
+def test_a_woman_who_reported_bleeding_is_not_told_to_expect_a_text(db):
+    """red_closing was written, translated, shipped -- and never emitted."""
+    import re
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    db.flush()
+
+    ivr.advance(db, session, None, "", "http://x/cb")
+    ivr.advance(db, session, "1", "", "http://x/cb")      # good time
+    ivr.advance(db, session, "1", "", "http://x/cb")      # yes, bleeding
+    last = None
+    for _ in range(6):
+        turn = ivr.advance(db, session, "2", "", "http://x/cb")
+        last = turn
+        if turn.finished:
+            break
+
+    said = re.search(r"<Say>(.*?)</Say>", last.xml, re.S).group(1).lower()
+    assert "health worker" in said, "she was not told anyone had been alerted"
+    assert "do not travel alone" in said
+    assert "send the date by message" not in said
+
+
+def test_fetal_movement_is_not_asked_before_quickening(db):
+    """Asking a woman at 12 weeks if her baby stopped moving, then dispatching."""
+    import datetime as dt2
+    from app.telephony import ivr, service as tel
+
+    early = Patient(name="Twelve Weeks", phone="+233240000931",
+                    community="Kpale", region="Northern", consent=True,
+                    edd=dt2.date.today() + dt2.timedelta(weeks=28))
+    late = Patient(name="Thirty Weeks", phone="+233240000932",
+                   community="Kpale", region="Northern", consent=True,
+                   edd=dt2.date.today() + dt2.timedelta(weeks=10))
+    db.add_all([early, late])
+    db.flush()
+
+    for patient, expected in ((early, False), (late, True)):
+        session, _ = tel.start_call(db, phone=patient.phone,
+                                    patient_id=patient.id, purpose="outreach",
+                                    language="english")
+        db.flush()
+        keys = [k for k, _ in ivr.danger_questions_for(db, session)]
+        assert ("reduced_fetal_movement" in keys) is expected, \
+            "{} asked the wrong question set".format(patient.name)
+        # Everything else is still asked either way.
+        assert "bleeding" in keys and "convulsions" in keys
+
+
+def test_a_file_that_is_not_audio_can_never_count_as_a_voice(db):
+    """A 2 kB run of the letter "x" reached production and ended every call."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "dagbani",
+                        Phrase.key == "closing").first())
+    with pytest.raises(ValueError):
+        pipeline.write_audio(db, phrase, b"x" * 2000, source="recorded")
+
+    ok, reason = pipeline.looks_like_audio(b"\x1a\x45\xdf\xa3" + b"\x00" * 1000)
+    assert ok is False and "phone call" in reason, \
+        "a browser recording was accepted for a GSM call"
+
+
+def test_a_composed_turn_is_still_in_her_language(db):
+    """34 nutrition messages were unreachable behind an invented catalogue key."""
+    from app.telephony import ivr
+
+    composed = ivr.compose(db, "dagbani", [
+        (None, "Some runtime message."),
+        ("birth_plan", "Have you set aside money?"),
+    ])
+    assert "Some runtime message." in composed
+    assert any(ch in composed for ch in "ɛɣŋʒɔ"), \
+        "the catalogue part fell back to English"

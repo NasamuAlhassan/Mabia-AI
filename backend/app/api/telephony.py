@@ -121,7 +121,7 @@ async def voice(request: Request, db: Session = Depends(get_db)):
     # the entire call into the event log.
     if session.ended_at is not None:
         db.commit()
-        return _xml(ivr.tell(base, session.language, "closing",
+        return _xml(ivr.tell(db, base, session.language, "closing",
                              prompts.line("closing")))
 
     # ---- driver dispatch: one question, one key --------------------------
@@ -174,12 +174,12 @@ def _driver_turn(db: Session, session: CallSession, dtmf, base, callback) -> Res
                   .first())
     if dtmf is None:
         db.commit()
-        return _xml(ivr.ask(base, session.language, "driver_request",
+        return _xml(ivr.ask(db, base, session.language, "driver_request",
                             prompts.line("driver_request"), callback))
 
     if dtmf not in ("1", "2"):
         db.commit()
-        return _xml(ivr.ask(base, session.language, "driver_request",
+        return _xml(ivr.ask(db, base, session.language, "driver_request",
                             prompts.line("not_understood") + " " +
                             prompts.line("driver_request"), callback))
     accepted = dtmf == "1"
@@ -191,7 +191,7 @@ def _driver_turn(db: Session, session: CallSession, dtmf, base, callback) -> Res
     db.flush()
     db.commit()
     key = "driver_accepted" if accepted else "driver_declined"
-    return _xml(ivr.tell(base, session.language, key, prompts.line(key)))
+    return _xml(ivr.tell(db, base, session.language, key, prompts.line(key)))
 
 
 def _nurse_turn(db: Session, session: CallSession, base: str) -> str:
@@ -208,13 +208,13 @@ def _nurse_turn(db: Session, session: CallSession, base: str) -> str:
             ev.append(db, patient_id=session.patient_id, actor_id="system",
                       event_type=ev.NURSE_ROUTED,
                       payload={"attempt": session.nurse_attempt, "to": target})
-        return ivr.dial(target, prompts.line("nurse_connecting"), base,
+        return ivr.dial(db, target, prompts.line("nurse_connecting"), base,
                         session.language)
 
     message = services.terminal_fallback(db, session)
     session.ended_at = dt.datetime.utcnow()
     db.flush()
-    return ivr.tell(base, session.language, "nurse_unavailable", message)
+    return ivr.tell(db, base, session.language, "nurse_unavailable", message)
 
 
 def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> None:

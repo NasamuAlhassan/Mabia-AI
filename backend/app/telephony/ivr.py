@@ -77,30 +77,69 @@ def spoken_text(db, language: str, key: str, fallback: str) -> str:
     return fallback
 
 
-def speak(base_url: str, language: str, key: str, text: str) -> str:
+def Turn_xml_ask(db, base_url, language, text, callback_url) -> str:
+    """A GetDigits whose prompt is a composed utterance rather than one clip."""
+    return (
+        '<Response><GetDigits numDigits="1" timeout="{}" callbackUrl="{}">'
+        "<Say>{}</Say></GetDigits></Response>"
+    ).format(DIGIT_TIMEOUT, escape(callback_url, {'"': "&quot;"}), escape(text))
+
+
+def Turn_xml_tell(db, base_url, language, text) -> str:
+    return "<Response><Say>{}</Say></Response>".format(escape(text))
+
+
+def compose(db, language: str, parts) -> str:
+    """Several catalogue lines spoken as one utterance, each translated.
+
+    Some turns are built at runtime -- a nutrition message followed by the
+    birth-plan question, or advice plus a next-visit date plus a goodbye. There
+    is no single clip for those, and there was previously no translation either:
+    they were assembled from English and passed under an invented key that the
+    catalogue had never heard of, so 34 nutrition messages could never be
+    spoken in any language. Composing the *translated* pieces means a composed
+    turn is still in her language even though no clip can cover it.
+    """
+    said = []
+    for key, fallback in parts:
+        if not fallback:
+            continue
+        said.append(spoken_text(db, language, key, fallback) if key
+                    else fallback)
+    return " ".join(s for s in said if s)
+
+
+def speak(db, base_url: str, language: str, key: str, text: str) -> str:
+    """A recorded clip if one exists, else her language spoken, else English.
+
+    The fallback order matters and each step is a real degradation: a clip in
+    her language, then a synthetic voice reading her language, then English.
+    Only the last is a failure, and it is what every call was doing.
+    """
     url = _audio_url(base_url, language, key) if base_url else None
     if url:
         return '<Play url="{}"/>'.format(escape(url, {'"': "&quot;"}))
-    return "<Say>{}</Say>".format(escape(text))
+    return "<Say>{}</Say>".format(escape(spoken_text(db, language, key, text)))
 
 
-def ask(base_url: str, language: str, key: str, text: str, callback_url: str) -> str:
-    inner = speak(base_url, language, key, text)
+def ask(db, base_url: str, language: str, key: str, text: str,
+        callback_url: str) -> str:
+    inner = speak(db, base_url, language, key, text)
     return (
         '<Response><GetDigits numDigits="1" timeout="{}" callbackUrl="{}">'
         "{}</GetDigits></Response>"
     ).format(DIGIT_TIMEOUT, escape(callback_url, {'"': "&quot;"}), inner)
 
 
-def tell(base_url: str, language: str, key: str, text: str, hangup: bool = True) -> str:
-    body = speak(base_url, language, key, text)
+def tell(db, base_url: str, language: str, key: str, text: str) -> str:
+    body = speak(db, base_url, language, key, text)
     return "<Response>{}</Response>".format(body)
 
 
-def dial(numbers: str, hold_text: str, base_url: str, language: str) -> str:
+def dial(db, numbers: str, hold_text: str, base_url: str, language: str) -> str:
     return ('<Response>{}<Dial phoneNumbers="{}" record="false" '
             'sequential="true"/></Response>').format(
-        speak(base_url, language, "nurse_connecting", hold_text),
+        speak(db, base_url, language, "nurse_connecting", hold_text),
         escape(numbers, {'"': "&quot;"}))
 
 
@@ -114,6 +153,36 @@ class Turn:
         self.xml = xml
         self.finished = finished
         self.note = note
+
+
+# Quickening is around 18-20 weeks in a first pregnancy. Asking before that
+# whether the baby has stopped moving asks about something she has never felt,
+# and a "yes" fires an emergency, an SMS to her health worker, a message to her
+# family and a driver cascade. A midwife spots this before you finish the
+# sentence.
+QUICKENING_WEEK = 20
+
+
+def gestational_week(db, session: CallSession):
+    """Her week of pregnancy, or None if we do not know."""
+    if not session.patient_id:
+        return None
+    patient = db.get(Patient, session.patient_id)
+    if patient is None or not patient.edd:
+        return None
+    remaining = (patient.edd - dt.date.today()).days
+    return max(0, min(45, 40 - remaining // 7))
+
+
+def danger_questions_for(db, session: CallSession):
+    """The danger signs worth asking THIS woman at THIS point in her pregnancy."""
+    week = gestational_week(db, session)
+    if week is None:
+        # Gestation unknown: ask everything rather than assume, but the fetal
+        # movement question is the one that misfires, so it goes last.
+        return list(DANGER_QUESTIONS)
+    return [(key, text) for key, text in DANGER_QUESTIONS
+            if not (key == "reduced_fetal_movement" and week < QUICKENING_WEEK)]
 
 
 def diet_questions_for(session: CallSession):
@@ -159,18 +228,18 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
                 session.outcome = "no_input"
                 session.transcript = transcript
                 db.flush()
-                return Turn(tell(base_url, language, "no_answer",
+                return Turn(tell(db, base_url, language, "no_answer",
                                  prompts.line("no_answer")),
                             finished=True, note="no_input")
             session.state = GREET
             session.transcript = transcript
             db.flush()
             text = "{} {}".format(prompts.line("greet"), prompts.line("consent"))
-            return Turn(ask(base_url, language, "greet_consent", text, callback_url))
+            return Turn(ask(db, base_url, language, "greet_consent", text, callback_url))
         if digit not in ("1", "2"):
             session.transcript = transcript
             db.flush()
-            return Turn(ask(base_url, language, "greet_consent",
+            return Turn(ask(db, base_url, language, "greet_consent",
                             prompts.line("not_understood") + " " +
                             prompts.line("consent"), callback_url))
         remember("consent", digit)
@@ -179,24 +248,34 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             session.outcome = "rescheduled"
             session.transcript = transcript
             db.flush()
-            return Turn(tell(base_url, language, "reschedule",
+            return Turn(tell(db, base_url, language, "reschedule",
                              prompts.line("reschedule")), finished=True,
                         note="rescheduled")
         session.state = DANGER
         session.cursor = 0
+        # Pin the question set for the whole call: cursor indexes into it, and
+        # a list that changed mid-call would ask the wrong question.
+        asked = danger_questions_for(db, session)
+        answers["asked_signs"] = [k for k, _ in asked]
+        session.answers = answers
         session.transcript = transcript
         db.flush()
-        key, text = DANGER_QUESTIONS[0]
+        key, text = asked[0]
         # She has agreed to talk, so now tell her how to reach a person. Said
         # here rather than in the greeting: it is only useful once she is in the
         # conversation, and it kept the greeting past the synthesis ceiling.
-        return Turn(ask(base_url, language, "danger_" + key,
+        return Turn(ask(db, base_url, language, "danger_" + key,
                         "{} {}".format(prompts.line("escape_hint"), text),
                         callback_url))
 
     # --- danger signs ----------------------------------------------------
     if state == DANGER:
-        key, _ = DANGER_QUESTIONS[session.cursor]
+        pinned = answers.get("asked_signs") or [k for k, _ in DANGER_QUESTIONS]
+        by_key = dict(DANGER_QUESTIONS)
+        asked = [(k, by_key[k]) for k in pinned if k in by_key]
+        if session.cursor >= len(asked):
+            session.cursor = len(asked) - 1
+        key, _ = asked[session.cursor]
         remember("danger_" + key, digit)
 
         # Three states, not two. Africa's Talking sends an empty dtmfDigits on
@@ -213,8 +292,8 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             # denials clear previously affirmed signs.
             session.transcript = transcript
             db.flush()
-            _, again = DANGER_QUESTIONS[session.cursor]
-            return Turn(ask(base_url, language, "danger_" + key,
+            _, again = asked[session.cursor]
+            return Turn(ask(db, base_url, language, "danger_" + key,
                             prompts.line("not_understood") + " " + again,
                             callback_url))
         else:
@@ -225,20 +304,20 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
                 session.answers = answers
                 session.transcript = transcript
                 db.flush()
-                _, again = DANGER_QUESTIONS[session.cursor]
-                return Turn(ask(base_url, language, "danger_" + key,
+                _, again = asked[session.cursor]
+                return Turn(ask(db, base_url, language, "danger_" + key,
                                 prompts.line("not_understood") + " " + again,
                                 callback_url))
             answers.setdefault("danger", {})[key] = None
 
         nxt = session.cursor + 1
-        if nxt < len(DANGER_QUESTIONS):
+        if nxt < len(asked):
             session.cursor = nxt
             session.answers = answers
             session.transcript = transcript
             db.flush()
-            nkey, ntext = DANGER_QUESTIONS[nxt]
-            return Turn(ask(base_url, language, "danger_" + nkey, ntext, callback_url))
+            nkey, ntext = asked[nxt]
+            return Turn(ask(db, base_url, language, "danger_" + nkey, ntext, callback_url))
 
         # Danger block finished. Diet next, if this contact carries it.
         if session.include_diet:
@@ -249,14 +328,14 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             session.transcript = transcript
             db.flush()
             qs = diet_questions_for(session)
-            return Turn(ask(base_url, language, "diet_" + qs[0]["group"],
+            return Turn(ask(db, base_url, language, "diet_" + qs[0]["group"],
                             qs[0]["prompt"], callback_url))
         session.state = BIRTH_PLAN
         session.answers = answers
         session.transcript = transcript
         db.flush()
         bkey, btext = prompts.BIRTH_PLAN_QUESTION
-        return Turn(ask(base_url, language, bkey, btext, callback_url))
+        return Turn(ask(db, base_url, language, bkey, btext, callback_url))
 
     # --- dietary diversity ------------------------------------------------
     if state == DIET:
@@ -266,7 +345,7 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         if digit not in ("1", "2"):
             session.transcript = transcript
             db.flush()
-            return Turn(ask(base_url, language, "diet_" + group,
+            return Turn(ask(db, base_url, language, "diet_" + group,
                             prompts.line("not_understood") + " " +
                             qs[session.cursor]["prompt"], callback_url))
         answers.setdefault("diet", {})[group] = (digit == "1")
@@ -276,7 +355,7 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             session.answers = answers
             session.transcript = transcript
             db.flush()
-            return Turn(ask(base_url, language, "diet_" + qs[nxt]["group"],
+            return Turn(ask(db, base_url, language, "diet_" + qs[nxt]["group"],
                             qs[nxt]["prompt"], callback_url))
 
         # All groups asked -- choose the single message she will actually hear.
@@ -290,9 +369,10 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         session.state = BIRTH_PLAN
         db.flush()
         bkey, btext = prompts.BIRTH_PLAN_QUESTION
-        combined = "{} {}".format(message, btext)
-        return Turn(ask(base_url, language, "nutrition_then_plan", combined,
-                        callback_url))
+        # The nutrition message is already translated by _nutrition_message;
+        # the birth-plan question is a catalogue line, so it is looked up.
+        combined = compose(db, language, [(None, message), (bkey, btext)])
+        return Turn(Turn_xml_ask(db, base_url, language, combined, callback_url))
 
     # --- birth preparedness ------------------------------------------------
     if state == BIRTH_PLAN:
@@ -302,21 +382,34 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         session.state = NEXT_VISIT
         session.transcript = transcript
         db.flush()
-        advice = prompts.line("birth_plan_yes" if digit == "1" else "birth_plan_no")
+        advice_key = "birth_plan_yes" if digit == "1" else "birth_plan_no"
         weeks = _weeks_to_next_visit(db, session)
-        closing = "{} {} {} {}".format(
-            advice, prompts.line("next_visit_prefix"),
-            prompts.line(prompts.weeks_key(weeks)), prompts.line("closing"))
+        weeks_key = prompts.weeks_key(weeks)
+
+        # If she reported anything dangerous, she must not be sent away with
+        # "we will text you the date". red_closing exists, is translated, and
+        # was never once emitted: she was told to expect a message instead of
+        # being told her health worker had been alerted and not to travel alone.
+        reported = [k for k, v in (answers.get("danger") or {}).items() if v is True]
+        closing_key = "red_closing" if reported else "closing"
+
+        parts = [(advice_key, prompts.line(advice_key))]
+        if not reported:
+            parts += [("next_visit_prefix", prompts.line("next_visit_prefix")),
+                      (weeks_key, prompts.line(weeks_key))]
+        parts.append((closing_key, prompts.line(closing_key)))
+
         session.state = DONE
         db.flush()
-        return Turn(tell(base_url, language, "closing", closing), finished=True,
-                    note="completed")
+        return Turn(Turn_xml_tell(db, base_url, language,
+                                  compose(db, language, parts)),
+                    finished=True, note="completed")
 
     # --- anything unexpected ------------------------------------------------
     session.state = DONE
     session.transcript = transcript
     db.flush()
-    return Turn(tell(base_url, language, "closing", prompts.line("closing")),
+    return Turn(tell(db, base_url, language, "closing", prompts.line("closing")),
                 finished=True, note="completed")
 
 

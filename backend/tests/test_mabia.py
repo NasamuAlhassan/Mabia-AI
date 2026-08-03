@@ -142,16 +142,16 @@ def test_red_stays_red_until_a_human_closes_it():
 
 def test_the_two_instruments_are_not_the_same():
     """MDD-W is ten groups for a woman; the child indicator is eight."""
-    assert Recall(MDD_W, []).total == 10
-    assert Recall(MDD_CHILD, []).total == 8
-    assert "breastmilk" in Recall(MDD_CHILD, []).missing
-    assert "breastmilk" not in Recall(MDD_W, []).missing
+    assert Recall.from_complete(MDD_W, []).total == 10
+    assert Recall.from_complete(MDD_CHILD, []).total == 8
+    assert "breastmilk" in Recall.from_complete(MDD_CHILD, []).missing
+    assert "breastmilk" not in Recall.from_complete(MDD_W, []).missing
 
 
 def test_minimum_is_five_on_both_instruments():
     assert Recall(MDD_W, ["grains"] * 1).minimum == 5
-    assert Recall(MDD_CHILD, []).minimum == 5
-    assert Recall(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy",
+    assert Recall.from_complete(MDD_CHILD, []).minimum == 5
+    assert Recall.from_complete(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy",
                           "flesh"]).meets_minimum
 
 
@@ -160,7 +160,7 @@ def test_minimum_is_five_on_both_instruments():
 
 def test_the_same_gap_gives_different_advice_in_different_months():
     """The test that proves the engine is real and not a static message bank."""
-    gap = Recall(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "flesh",
+    gap = Recall.from_complete(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "flesh",
                          "eggs", "dark_leafy", "other_veg", "other_fruit"])
     assert gap.missing == ["vita_fruit_veg"]
     june = recommend(gap, region="Savannah", month=6, affordability="low")
@@ -176,7 +176,7 @@ def test_lean_season_prefers_what_is_gathered_over_what_is_bought():
     missing flesh group outranks a missing fruit group regardless of season,
     and it should.
     """
-    only_leaves_missing = Recall(MDD_W, [
+    only_leaves_missing = Recall.from_complete(MDD_W, [
         "grains", "pulses", "nuts_seeds", "dairy", "flesh", "eggs",
         "vita_fruit_veg", "other_veg", "other_fruit"])
     lean = recommend(only_leaves_missing, region="Northern", month=7,
@@ -187,7 +187,7 @@ def test_lean_season_prefers_what_is_gathered_over_what_is_bought():
 
 def test_advice_rotates_through_her_gaps_instead_of_repeating():
     """A woman missing seven groups used to hear one sentence for a year."""
-    gap = Recall(MDD_W, ["grains", "other_veg", "nuts_seeds"])
+    gap = Recall.from_complete(MDD_W, ["grains", "other_veg", "nuts_seeds"])
     seen, groups = [], []
     for _ in range(4):
         rec = recommend(gap, region="Northern", month=7, affordability="low",
@@ -207,7 +207,7 @@ def test_lean_season_prices_put_eggs_out_of_reach():
 
 def test_a_taboo_substitutes_within_the_same_food_group():
     """We do not argue with a taboo on an automated call. We offer another food."""
-    gap = Recall(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "flesh",
+    gap = Recall.from_complete(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "flesh",
                          "eggs", "other_veg", "other_fruit", "vita_fruit_veg"])
     assert gap.missing == ["dark_leafy"]
     first = recommend(gap, month=7, affordability="low")
@@ -218,7 +218,7 @@ def test_a_taboo_substitutes_within_the_same_food_group():
 
 
 def test_affordability_never_recommends_what_she_cannot_buy():
-    gap = Recall(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "eggs",
+    gap = Recall.from_complete(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "eggs",
                          "dark_leafy", "vita_fruit_veg", "other_veg",
                          "other_fruit"])
     assert gap.missing == ["flesh"]
@@ -227,7 +227,7 @@ def test_affordability_never_recommends_what_she_cannot_buy():
 
 
 def test_a_full_diet_is_told_so():
-    every = [g for g in Recall(MDD_W, []).missing]
+    every = [g for g in Recall.from_complete(MDD_W, []).missing]
     full = Recall(MDD_W, every)
     rec = recommend(full, month=7)
     assert rec.food is None

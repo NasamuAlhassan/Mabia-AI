@@ -21,30 +21,74 @@ MDD_CHILD = "mdd_child"
 
 
 class Recall:
-    """The result of asking the food-group questions."""
+    """The result of asking the food-group questions.
+
+    Every group has one of three states and the difference between two of them
+    has been the single most expensive thing in this codebase: eaten, not
+    eaten, and not established. Three separate clinical defects -- each found
+    in a different audit, each shipped -- came from one design decision here:
+    `missing` used to be the *complement* of what was named, so any group the
+    caller failed to mention became a measured dietary gap. Silence became a
+    gap. A dropped call became seven gaps. Every new way of not-answering
+    invented new deficits, and a health worker was then shown them to counsel
+    on.
+
+    So the default is inverted. A group nobody has said anything about is
+    UNKNOWN, never missing. `missing` now contains only groups explicitly
+    reported as not eaten, and there is no way to produce a gap by omission --
+    you have to say "no" for it to count as "no".
+
+    `from_complete` is for the one case where the complement really is right:
+    a finished questionnaire, where everything not named as eaten was in fact
+    asked about and denied. It is a separate constructor precisely so that
+    choosing it is a decision someone made rather than a default they got.
+    """
 
     def __init__(self, instrument: str, present: List[str],
-                 unknown: Optional[List[str]] = None):
+                 unknown: Optional[List[str]] = None,
+                 denied: Optional[List[str]] = None):
         self.instrument = instrument
         all_groups = groups_for(instrument)
         self.present = [g for g in present if g in all_groups]
-        # A question she never answered is not a food group she did not eat.
-        # Folding the two together invented gaps out of dropped keypresses and
-        # then advised her about them -- confident guidance derived from
-        # silence. The score stays conservative (unknown does not count as
-        # eaten, which is the standard reading) but advice is only ever given
-        # about a gap that was actually measured.
-        self.unknown = [g for g in (unknown or []) if g in all_groups
-                        and g not in self.present]
-        self.missing = [g for g in all_groups
-                        if g not in self.present and g not in self.unknown]
+        rest = [g for g in all_groups if g not in self.present]
+
+        if denied is not None:
+            # Explicit: these were asked and answered no.
+            self.missing = [g for g in denied if g in rest]
+        elif unknown is not None:
+            # The caller has accounted for every group, so whatever is neither
+            # eaten nor unknown was asked and denied.
+            self.missing = [g for g in rest if g not in unknown]
+        else:
+            # Nothing said about a group means nothing is known about it. This
+            # is the line that three separate clinical defects came from when
+            # it read the other way round.
+            self.missing = []
+
+        self.unknown = [g for g in rest if g not in self.missing]
+
         self.score = len(self.present)
         self.total = len(all_groups)
         self.minimum = MDDW_MINIMUM if instrument == MDD_W else CHILD_MINIMUM
 
+    @classmethod
+    def from_complete(cls, instrument: str, present: List[str]) -> "Recall":
+        """A questionnaire that was finished: everything not eaten was denied.
+
+        Only correct when every question was actually put and answered. If any
+        of them were not, use the ordinary constructor and say which.
+        """
+        all_groups = groups_for(instrument)
+        return cls(instrument, present,
+                   denied=[g for g in all_groups if g not in present])
+
     @property
     def meets_minimum(self) -> bool:
         return self.score >= self.minimum
+
+    @property
+    def fully_measured(self) -> bool:
+        return not self.unknown
 
     def to_dict(self):
         labels = group_labels(self.instrument)

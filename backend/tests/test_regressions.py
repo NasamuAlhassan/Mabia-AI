@@ -595,7 +595,7 @@ def test_nothing_in_the_api_returns_a_500_for_bad_input(client, auth):
 def test_advice_explains_why_the_gap_matters_without_diagnosing(db):
     """Plain language, and modest: a screening measure is not a diagnosis."""
     from app.engines.nutrition import MDD_W, Recall, recommend
-    gap = Recall(MDD_W, ["grains", "other_veg"])
+    gap = Recall.from_complete(MDD_W, ["grains", "other_veg"])
     rec = recommend(gap, region="Northern", month=7, affordability="low")
     body = rec.to_dict()
     assert body["why"], "no explanation of why the gap matters"
@@ -1126,7 +1126,7 @@ def test_a_child_who_stopped_breastfeeding_is_not_congratulated(db):
     from app.engines.nutrition import MDD_CHILD, Recall, recommend
 
     # Five of eight groups, but breast milk is not one of them.
-    recall = Recall(MDD_CHILD, ["grains", "pulses_nuts_seeds", "dairy",
+    recall = Recall.from_complete(MDD_CHILD, ["grains", "pulses_nuts_seeds", "dairy",
                                 "flesh", "eggs"])
     assert recall.meets_minimum is True
     rec = recommend(recall, month=7)
@@ -1452,6 +1452,13 @@ def test_the_food_advice_can_be_played_as_a_recording(db):
     patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
     session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
                                 purpose="outreach", language="dagbani")
+    # A completed diet block with a real gap. Without answers there is nothing
+    # measured and therefore -- correctly -- no food to advise about.
+    session.answers = dict(session.answers or {}, instrument="mdd_w", diet={
+        "grains": True, "pulses": True, "nuts_seeds": True, "dairy": True,
+        "eggs": True, "vita_fruit_veg": True, "other_veg": True,
+        "other_fruit": True, "dark_leafy": True, "flesh": False,
+    })
     db.flush()
 
     advice, food_key = ivr._nutrition_message(db, session)
@@ -1784,7 +1791,7 @@ def test_the_clinically_important_gap_is_filled_before_the_trivial_one(db):
     # Everything present except one important gap and one trivial one.
     present = ["grains", "pulses", "nuts_seeds", "dairy", "eggs",
                "vita_fruit_veg", "other_veg"]
-    recall = Recall(MDD_W, present)
+    recall = Recall.from_complete(MDD_W, present)
     assert set(recall.missing) == {"flesh", "dark_leafy", "other_fruit"}
 
     rec = recommend(recall, month=7, affordability="low")
@@ -2965,7 +2972,7 @@ def test_a_woman_is_not_told_to_give_her_own_missing_food_to_the_child(db):
 
     offenders = []
     for keep in range(len(groups_for(MDD_W))):
-        recall = Recall(MDD_W, groups_for(MDD_W)[:keep])
+        recall = Recall.from_complete(MDD_W, groups_for(MDD_W)[:keep])
         rec = recommend(recall, month=7, affordability="high")
         if rec.food is None:
             continue
@@ -2976,8 +2983,8 @@ def test_a_woman_is_not_told_to_give_her_own_missing_food_to_the_child(db):
 
     # And the caregiver wording is still there for the child instrument --
     # unchanged, so its Dagbani translation is not thrown away.
-    child = recommend(Recall(MDD_CHILD, ["breastmilk", "grains"]), month=7,
-                      affordability="high")
+    child = recommend(Recall.from_complete(MDD_CHILD, ["breastmilk", "grains"]),
+                      month=7, affordability="high")
     assert child.food is not None
     assert child.message == child.food["message"]
 
@@ -3011,7 +3018,7 @@ def test_partial_praise_is_distinct_from_full_praise(db):
         "congratulated on four questions that were never answered"
     assert "answered about" in message
 
-    complete = Recall(MDD_W, list(partial.present) + partial.unknown)
+    complete = Recall.from_complete(MDD_W, list(partial.present) + partial.unknown)
     assert "covered every food group" in recommend(complete, month=7).message
 
 
@@ -3127,3 +3134,83 @@ def test_variants_never_carries_raw_input_into_the_query(db):
     # A parseable number still resolves to exactly its own spellings.
     assert phones.variants("0200000001") == {
         "0200000001", "+233200000001", "233200000001", "200000001"}
+
+
+# ------------------------------------------------ the door, not the doorways
+
+
+def test_no_gap_can_ever_be_produced_by_omission(db):
+    """Three separate clinical defects came from one line reading backwards.
+
+    `missing` used to be the complement of what the caller named, so every new
+    way of not-answering invented new deficits: silence became a gap, then a
+    dropped call became seven gaps. Each was fixed where it surfaced. This
+    tests the property instead of the three doorways -- you have to say "no"
+    for something to count as "no", and no amount of saying nothing will do it.
+    """
+    from app.data.foods import groups_for
+    from app.engines.nutrition import MDD_CHILD, MDD_W, Recall
+
+    for instrument in (MDD_W, MDD_CHILD):
+        groups = groups_for(instrument)
+        for keep in range(len(groups) + 1):
+            named = groups[:keep]
+            recall = Recall(instrument, named)
+            assert recall.missing == [], \
+                "{} gaps invented from naming {} eaten groups".format(
+                    recall.missing, keep)
+            assert set(recall.present) | set(recall.unknown) == set(groups)
+            assert recall.score == keep
+
+    # And every state is accounted for exactly once, however it is built.
+    for instrument in (MDD_W, MDD_CHILD):
+        groups = groups_for(instrument)
+        for recall in (Recall.from_complete(instrument, groups[:3]),
+                       Recall(instrument, groups[:3], unknown=groups[3:5]),
+                       Recall(instrument, groups[:3], denied=groups[5:])):
+            buckets = recall.present + recall.missing + recall.unknown
+            assert sorted(buckets) == sorted(groups), \
+                "a group is in two buckets or none: {}".format(buckets)
+            assert len(buckets) == len(set(buckets))
+
+
+def test_saying_a_group_was_not_eaten_still_makes_it_a_gap(db):
+    """The inverted default must not swallow the real signal."""
+    from app.engines.nutrition import MDD_W, Recall, recommend
+
+    recall = Recall(MDD_W, ["grains", "pulses", "dairy", "eggs", "other_veg"],
+                    denied=["flesh", "dark_leafy"])
+    assert set(recall.missing) == {"flesh", "dark_leafy"}
+    assert recall.meets_minimum
+    rec = recommend(recall, month=7, affordability="low")
+    assert rec.group in ("flesh", "dark_leafy"), \
+        "an explicitly denied group produced no advice"
+
+
+def test_a_completed_paper_recall_still_reports_its_gaps(client, db, auth):
+    """The API defaults to a finished questionnaire, which is what a form is."""
+    r = client.post("/api/nutrition/assess", headers=auth, json={
+        "instrument": "mdd_w",
+        "present": ["grains", "pulses", "dairy", "eggs", "other_veg"],
+        "month": 7})
+    assert r.status_code == 200
+    body = r.json()
+    assert "flesh" in body["recall"]["missing"]
+    assert body["recall"]["unknown"] == []
+
+
+def test_an_interrupted_paper_recall_reports_no_gaps_it_did_not_measure(client, db, auth):
+    """A CHO could not express "not asked" at all, so every un-asked group
+    became a measured gap -- the same shape as the IVR bug, through the API."""
+    r = client.post("/api/nutrition/assess", headers=auth, json={
+        "instrument": "mdd_w",
+        "present": ["grains", "pulses"],
+        "complete": False,
+        "unknown": ["flesh", "dark_leafy", "vita_fruit_veg", "other_fruit",
+                    "nuts_seeds", "eggs"],
+        "month": 7})
+    assert r.status_code == 200
+    recall = r.json()["recall"]
+    assert "flesh" not in recall["missing"]
+    assert set(recall["missing"]) == {"dairy", "other_veg"}
+    assert len(recall["unknown"]) == 6

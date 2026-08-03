@@ -616,9 +616,13 @@ def _nutrition_message(db: Session, session: CallSession):
     """
     patient = db.get(Patient, session.patient_id) if session.patient_id else None
     diet = (session.answers or {}).get("diet", {})
-    present = [group for group, eaten in diet.items() if eaten is True]
-    unknown = [group for group, eaten in diet.items() if eaten is None]
     instrument = (session.answers or {}).get("instrument", MDD_W)
+    present = [group for group, eaten in diet.items() if eaten is True]
+    # Anything absent from the dict was never put to her, and anything present
+    # as None was put and not answered. Neither is a gap.
+    from ..engines.nutrition import groups_for as _groups
+    unknown = ([group for group, eaten in diet.items() if eaten is None]
+               + [g for g in _groups(instrument) if g not in diet])
     recall = Recall(instrument, present, unknown)
 
     anaemia = False

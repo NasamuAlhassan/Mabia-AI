@@ -55,6 +55,13 @@ def food_table(month: Optional[int] = None, region: str = "Northern"):
 class RecallIn(BaseModel):
     instrument: str = MDD_W
     present: List[str] = []
+    # Was every question actually put to her? A form filled in during a visit
+    # normally was, and then anything not ticked is a real gap. A recall that
+    # was interrupted was not, and the groups nobody reached are unknown --
+    # not deficits. Defaulting to True keeps every existing caller correct,
+    # and `unknown` is how a partial recall says so.
+    complete: bool = True
+    unknown: List[str] = []
     region: Optional[str] = None
     month: Optional[int] = Field(default=None, ge=1, le=12)
     affordability: Optional[str] = None
@@ -79,7 +86,13 @@ def assess(body: RecallIn, db: Session = Depends(get_db),
            user: User = Depends(current_user)):
     """Score the recall and choose the one message she will actually hear."""
     patient = db.get(Patient, body.patient_id) if body.patient_id else None
-    recall = Recall(body.instrument, body.present)
+    # A form filled in on paper and typed up is a completed questionnaire:
+    # everything not ticked was asked and denied. Saying so explicitly is the
+    # point -- the old constructor inferred it, which is how a partially
+    # completed recall silently became a set of measured gaps.
+    recall = (Recall.from_complete(body.instrument, body.present)
+              if body.complete
+              else Recall(body.instrument, body.present, unknown=body.unknown))
     rec = recommend(
         recall,
         region=body.region or (patient.region if patient else "Northern"),

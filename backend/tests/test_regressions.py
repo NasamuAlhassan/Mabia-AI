@@ -4042,3 +4042,126 @@ def test_the_backfill_never_overwrites_something_already_recorded(db):
     db.flush()
     assert patient.minutes_to_facility == 12, "it rewrote a recorded value"
     assert patient.road_condition == "good"
+
+
+def test_a_nudge_that_did_not_send_is_tried_again(db):
+    """Stamping the time regardless meant a reminder refused by the provider
+    was recorded as delivered and never retried -- making the mechanism that
+    exists to stop a case going quiet the thing that goes quiet."""
+    import datetime as _dt
+    from app.telephony import service as tel
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Nudge Fails", phone="+233240000971",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    emergency.created_at = _dt.datetime.utcnow() - _dt.timedelta(hours=6)
+    db.flush()
+
+    original = tel.send_sms
+
+    def refused(db_, to, body, kind="alert", patient_id=None):
+        row = Message(to_phone=to, body=body, kind=kind, patient_id=patient_id,
+                      provider="simulator", status="failed", error="no credit")
+        db_.add(row)
+        db_.flush()
+        return row
+
+    tel.send_sms = refused
+    try:
+        services.nudge_stale_emergencies(db)
+        db.flush()
+    finally:
+        tel.send_sms = original
+
+    assert emergency.nudged_at is None, \
+        "a refused reminder was recorded as delivered"
+    assert emergency.alert_failed is True
+
+    # With the provider working again, it is tried once more.
+    assert services.nudge_stale_emergencies(db)["nudged"] == 1
+    db.flush()
+    assert emergency.nudged_at is not None
+
+
+def test_the_backfill_is_keyed_on_a_number_not_a_name(db):
+    """A name is not an identifier. "Amina Fuseini" is an ordinary name in
+    Dagbon, and matching on it would write demo geography into a real woman's
+    record on any deployment that enrolled someone called that."""
+    from app import seed as seedmod
+
+    namesake = Patient(name="Amina Fuseini", phone="+233249999001",
+                       community="Somewhere Real", region="Upper East",
+                       consent=True)
+    db.add(namesake)
+    db.flush()
+
+    seedmod.seed(db)
+    db.flush()
+    assert namesake.minutes_to_facility is None, \
+        "demo geography was written into a real patient's record"
+    assert namesake.road_condition is None, \
+        "an unassessed road was recorded as passable"
+
+    # And the actual demo patient, identified by her seeded number, is filled.
+    demo = db.query(Patient).filter(Patient.phone == "+233240000001").first()
+    demo.minutes_to_facility = None
+    db.flush()
+    seedmod.seed(db)
+    db.flush()
+    assert demo.minutes_to_facility == 95
+
+
+def test_the_backfill_refolds_only_what_it_changed(db):
+    """Re-folding every patient at startup is fine for five and a slow,
+    pointless boot for thousands -- and startup is the one place a slow loop
+    stops the service existing rather than merely being slow."""
+    import inspect as _inspect
+    from app import seed as seedmod
+
+    source = _inspect.getsource(seedmod.backfill)
+    assert "for patient in db.query(Patient).all()" not in source, \
+        "the backfill still walks every patient in the database"
+    assert "for patient_id in touched" in source
+
+
+def test_an_unassessed_road_is_not_recorded_as_passable(db):
+    """`default="fair"` asserted that a road nobody had looked at was fine, in
+    the rule that decides whether a symptom is seen tonight or this week.
+
+    The same shape as minutes_to_facility defaulting to zero, which read as
+    "she lives at the facility door" -- and it understates risk on exactly the
+    households this rule exists to find.
+    """
+    from app.engines.risk import classify
+
+    patient = Patient(name="Road Unknown", phone="+233240000981",
+                      community="Kpale", region="Northern", consent=True,
+                      minutes_to_facility=60)
+    db.add(patient)
+    db.flush()
+    assert patient.road_condition is None, "a default reappeared"
+
+    class Snap:
+        active_danger_signs = ["fever"]
+        muac_mother = muac_child = None
+        mdd_instrument = "mdd_w"
+        mdd_history = []
+        ifa_adherent = None
+        consecutive_unreachable = 0
+        red_open = False
+        last_contact_at = None
+        weeks_pregnant = 30
+
+    codes = [r.code for r in classify(Snap(), patient).reasons]
+    assert "access.unknown" in codes, \
+        "60 minutes away on an unassessed road, and nothing says it is unknown"
+
+    patient.road_condition = "good"
+    db.flush()
+    assert "access.unknown" not in [
+        r.code for r in classify(Snap(), patient).reasons]

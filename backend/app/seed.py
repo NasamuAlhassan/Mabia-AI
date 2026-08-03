@@ -82,7 +82,7 @@ def seed(db: Session) -> None:
 
     created = []
     for name, phone, community, weeks, affordability, taboos in people:
-        minutes, road = DEMO_GEOGRAPHY[name]
+        minutes, road = DEMO_GEOGRAPHY[phone]
         edd = today + dt.timedelta(weeks=(40 - weeks))
         patient = Patient(
             name=name, phone=phone, secondary_phone="+233240000099",
@@ -199,12 +199,17 @@ def seed(db: Session) -> None:
 
 # Distance and road for the seeded caseload, keyed by name. Kept here rather
 # than inline so the backfill below and the first-run seed cannot drift.
+# Keyed on the seeded PHONE NUMBER, not the name. A name is not an identifier:
+# "Amina Fuseini" is an ordinary name in Dagbon, and matching on it would have
+# written demo geography into a real woman's record on any deployment that
+# happened to enrol someone called that. These five numbers exist only in the
+# demo caseload.
 DEMO_GEOGRAPHY = {
-    "Amina Fuseini": (95, "poor"),
-    "Zeinab Mahama": (40, "fair"),
-    "Hawa Sulemana": (55, "poor"),
-    "Memuna Iddris": (20, "good"),
-    "Rahma Osman": (70, "fair"),
+    "+233240000001": (95, "poor"),
+    "+233240000002": (40, "fair"),
+    "+233240000003": (55, "poor"),
+    "+233240000004": (20, "good"),
+    "+233240000005": (70, "fair"),
 }
 
 
@@ -221,20 +226,29 @@ def backfill(db: Session) -> None:
     Only ever fills a blank. Anything already recorded is left alone, so this
     cannot quietly rewrite something a worker entered.
     """
-    changed = 0
-    for name, (minutes, road) in DEMO_GEOGRAPHY.items():
-        patient = db.query(Patient).filter(Patient.name == name).first()
+    touched = []
+    for phone, (minutes, road) in DEMO_GEOGRAPHY.items():
+        patient = db.query(Patient).filter(Patient.phone == phone).first()
         if patient is None:
             continue
+        changed = False
         if patient.minutes_to_facility is None:
             patient.minutes_to_facility = minutes
-            changed += 1
+            changed = True
         if not patient.road_condition:
             patient.road_condition = road
-            changed += 1
+            changed = True
+        if changed:
+            touched.append(patient.id)
 
-    if changed:
-        db.flush()
-        for patient in db.query(Patient).all():
-            ev.refresh_state(db, patient.id)
-        print("seed: filled in {} missing demo fields".format(changed))
+    if not touched:
+        return
+
+    # Only the ones that changed. Re-folding every patient on the way up is
+    # fine for a demo caseload of five and is a slow, pointless startup on a
+    # database with thousands -- and startup is the one place a slow loop
+    # stops the service existing rather than merely being slow.
+    db.flush()
+    for patient_id in touched:
+        ev.refresh_state(db, patient_id)
+    print("seed: filled in geography for {} demo patients".format(len(touched)))

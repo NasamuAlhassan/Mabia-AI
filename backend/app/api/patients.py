@@ -38,7 +38,10 @@ class EnrolIn(BaseModel):
     # care; without these fields that rule is dead code, which is exactly what
     # it was before.
     minutes_to_facility: Optional[int] = Field(default=None, ge=0, le=1440)
-    road_condition: str = "fair"
+    # Optional, and unknown when absent. Defaulting it made every unassessed
+    # road passable, which understates risk on exactly the households this
+    # exists to find.
+    road_condition: Optional[Literal["good", "fair", "poor"]] = None
     secondary_name: Optional[str] = None
     consent: bool = False
     facility_id: Optional[str] = None

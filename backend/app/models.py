@@ -129,7 +129,11 @@ class Patient(Base):
     # rather than inferred. Walking minutes, because that is the unit a CHO
     # actually knows and a kilometre on a bad road is not a kilometre.
     minutes_to_facility = Column(Integer)
-    road_condition = Column(String, default="fair")  # good | fair | poor
+    # No default. "fair" asserted that a road nobody had assessed was passable,
+    # in the rule that decides whether a symptom is seen tonight or this week --
+    # the same shape as minutes_to_facility defaulting to zero, which read as
+    # "she lives at the facility door". Unknown is its own answer.
+    road_condition = Column(String)                  # good | fair | poor | None
     consent = Column(Boolean, default=False)
     consent_at = Column(DateTime)
     assigned_cho_id = Column(String, ForeignKey("users.id"))

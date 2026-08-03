@@ -240,11 +240,13 @@ def close_emergency(db: Session, emergency: Emergency, user: User,
 
 
 def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
-    """Matched by community, not coordinates.
+    """Ranked by community, not matched by coordinates.
 
-    Riders in villages are on feature phones; there is no live position to match
-    on, and pretending otherwise would be a demo that cannot survive contact
-    with a real road. The community is how dispatch actually happens.
+    Riders in villages are on feature phones; there is no live position to
+    match on, and pretending otherwise would be a demo that cannot survive
+    contact with a real road. Her own community comes first -- but it orders
+    the queue rather than limiting it, because a queue that excludes the next
+    village stops with a vehicle unasked.
     """
     from .models import CareCircleMember
 
@@ -503,19 +505,28 @@ def terminal_fallback(db: Session, session: CallSession) -> str:
     return prompts.line("nurse_unavailable")
 
 
-def _alert_cho(db: Session, patient: Patient, body: str) -> None:
+def _alert_cho(db: Session, patient: Patient, body: str) -> bool:
+    """Tell the worker responsible for her. Returns whether it actually sent."""
     cho = db.get(User, patient.assigned_cho_id) if patient.assigned_cho_id else None
     if cho:
-        tel.send_sms(db, cho.phone, "Mabia: " + body, kind="alert",
-                     patient_id=patient.id)
-    else:
-        _alert_any_cho(db, body)
+        message = tel.send_sms(db, cho.phone, "Mabia: " + body, kind="alert",
+                               patient_id=patient.id)
+        return not _failed(message)
+    return _alert_any_cho(db, body)
 
 
-def _alert_any_cho(db: Session, body: str) -> None:
+def _alert_any_cho(db: Session, body: str) -> bool:
+    """Anyone on duty, when nobody is assigned. Returns whether it sent.
+
+    The last link in every fallback chain. If a deployment has no worker at
+    all this does nothing and says so, rather than returning as though someone
+    had been told.
+    """
     cho = db.query(User).filter(User.role == "cho").first()
-    if cho:
-        tel.send_sms(db, cho.phone, "Mabia: " + body, kind="alert")
+    if cho is None:
+        return False
+    return not _failed(tel.send_sms(db, cho.phone, "Mabia: " + body,
+                                    kind="alert"))
 
 
 # --------------------------------------------------------------- scheduling
@@ -586,13 +597,23 @@ def nudge_stale_emergencies(db: Session, limit: int = 25) -> dict:
 
         hours = int((dt.datetime.utcnow() - emergency.created_at)
                     .total_seconds() // 3600)
-        _alert_cho(db, patient,
-                   "STILL OPEN after {} hours: {}, {}. Status: {}. "
-                   "Nobody has moved this on.".format(
-                       hours, patient.name, patient.community,
-                       emergency.status.replace("_", " ")))
-        emergency.nudged_at = dt.datetime.utcnow()
-        nudged.append(emergency.id)
+        delivered = _alert_cho(
+            db, patient,
+            "STILL OPEN after {} hours: {}, {}. Status: {}. "
+            "Nobody has moved this on.".format(
+                hours, patient.name, patient.community,
+                emergency.status.replace("_", " ")))
+
+        # Only a reminder that actually left the building counts. Stamping the
+        # time regardless meant a nudge refused by the provider was recorded as
+        # delivered and never tried again -- the whole point of this function
+        # is that a stuck case gets looked at, and that would have made the
+        # reminder itself the thing that goes quiet.
+        if delivered:
+            emergency.nudged_at = dt.datetime.utcnow()
+            nudged.append(emergency.id)
+        else:
+            emergency.alert_failed = True
 
     db.flush()
     return {"nudged": len(nudged), "checked": len(stuck)}

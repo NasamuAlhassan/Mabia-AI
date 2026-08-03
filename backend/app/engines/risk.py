@@ -200,10 +200,12 @@ def classify(snapshot, patient=None) -> Verdict:
         # would escalate almost every amber in a region where most catchments
         # have poor roads. So it says what it is, on the case where it would
         # have changed the answer, and asks for the one fact that settles it.
-        if minutes is None and clinical:
+        if clinical and (minutes is None or road is None):
+            missing = ("how far she lives from care" if minutes is None
+                       else "what her road is like")
             reasons.append(Reason(
                 "access.unknown", AMBER,
-                "How far she lives from care is not recorded",
+                "Not recorded: " + missing,
                 "Ask at the next contact — it decides whether a symptom like "
                 "this is seen tonight or this week"))
         if remote and clinical:

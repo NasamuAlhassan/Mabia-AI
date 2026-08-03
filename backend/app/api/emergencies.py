@@ -110,6 +110,29 @@ def next_driver(emergency_id: str, db: Session = Depends(get_db),
                      "manually." if dispatch is None else "Driver called.")}
 
 
+def _payer(db: Session, patient_id: str):
+    """Who settles the bill, surfaced where the decision is made.
+
+    This role was collected at enrolment and then read by nothing. Money is the
+    third delay -- a woman can be detected, confirmed, driven to the facility
+    and still not treated -- and "is she insured, and who is bringing the money"
+    is the question the facility asks on arrival. Answering it before she
+    arrives is most of what this field was for.
+    """
+    from ..models import CareCircleMember
+
+    row = (db.query(CareCircleMember)
+             .filter(CareCircleMember.patient_id == patient_id,
+                     CareCircleMember.role == "payer").first())
+    if row is None:
+        return {"known": False,
+                "note": "No one is recorded as paying. Ask before she travels."}
+    return {"known": True, "name": row.name, "phone": row.phone,
+            "nhis": row.detail, "confirmed": bool(row.confirmed),
+            "note": None if row.detail else
+                    "No NHIS number recorded — she may be asked to pay cash."}
+
+
 def _view(db: Session, emergency: Emergency):
     patient = db.get(Patient, emergency.patient_id)
     return {
@@ -122,6 +145,7 @@ def _view(db: Session, emergency: Emergency):
         "patient": {"id": patient.id, "name": patient.name,
                     "phone": patient.phone, "community": patient.community,
                     "language": patient.language} if patient else None,
+        "payer": _payer(db, emergency.patient_id),
         "dispatches": [{
             "id": d.id, "status": d.status, "position": d.position,
             "offered_at": d.offered_at, "responded_at": d.responded_at,

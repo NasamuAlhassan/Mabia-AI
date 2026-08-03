@@ -920,12 +920,18 @@ def test_stale_lines_are_re_translated_when_credits_return(db):
 # ------------------------------------------- the call speaks her language
 
 
-def test_a_dagbani_call_is_actually_in_dagbani(db):
-    """The corpus existed, the pipeline existed, and nothing read either.
+def test_her_language_is_played_and_never_read_by_an_english_voice(db):
+    """Two failures, one either side of the same line.
 
-    spoken_text() was defined and called from nowhere, so seventeen of eighteen
-    prompts played English while the translations sat in a table three lines
-    away from the code ignoring them.
+    First the call ignored the phrase table entirely and every Dagbani prompt
+    went out in English. Then, fixing that, the translation was handed to
+    <Say> -- which is the provider's ENGLISH text-to-speech voice. There is no
+    Dagbani voice behind it, so that produced an English speaker failing at
+    Dagbani orthography: worse for the woman on the line than plain English.
+
+    The rule is: a clip in her language is played; anything with no clip is
+    said in English until one is recorded. Nothing ever hands her language to
+    an English voice.
     """
     import re
     from app.telephony import ivr, service as tel
@@ -937,20 +943,18 @@ def test_a_dagbani_call_is_actually_in_dagbani(db):
                                 purpose="outreach", language="dagbani")
     db.flush()
 
-    spoken = []
+    said, played = [], []
     for digit in (None, "1", "1", "2", "2", "2", "1", "1"):
         turn = ivr.advance(db, session, digit, "http://x", "http://x/cb")
-        said = re.search(r"<Say>(.*?)</Say>", turn.xml, re.S)
-        if said:
-            spoken.append(said.group(1))
+        said += re.findall(r"<Say>(.*?)</Say>", turn.xml, re.S)
+        played += re.findall(r'<Play url="(.*?)"', turn.xml)
         if turn.finished:
             break
 
-    assert spoken, "the call said nothing"
-    # Dagbani orthography uses characters English does not.
-    for line in spoken:
-        assert any(ch in line for ch in "ɛɣŋʒɔɨɩʋ"), \
-            "spoken in English, not Dagbani: {}".format(line[:70])
+    assert played, "no recorded Dagbani was used at all"
+    for line in said:
+        assert all(ch not in line for ch in "ɛɣŋʒɔɨɩʋ"), \
+            "Dagbani handed to the English voice: {}".format(line[:70])
 
 
 def test_a_woman_who_reported_bleeding_is_not_told_to_expect_a_text(db):
@@ -973,7 +977,7 @@ def test_a_woman_who_reported_bleeding_is_not_told_to_expect_a_text(db):
         if turn.finished:
             break
 
-    said = re.search(r"<Say>(.*?)</Say>", last.xml, re.S).group(1).lower()
+    said = " ".join(re.findall(r"<Say>(.*?)</Say>", last.xml, re.S)).lower()
     assert "health worker" in said, "she was not told anyone had been alerted"
     assert "do not travel alone" in said
     assert "send the date by message" not in said
@@ -1022,17 +1026,39 @@ def test_a_file_that_is_not_audio_can_never_count_as_a_voice(db):
         "a browser recording was accepted for a GSM call"
 
 
-def test_a_composed_turn_is_still_in_her_language(db):
-    """34 nutrition messages were unreachable behind an invented catalogue key."""
+def test_a_composed_turn_resolves_each_part_on_its_own(db):
+    """Joining parts under one key silently threw all but the first away.
+
+    ask(key, hint + " " + question) played the clip for `key` and discarded the
+    string entirely -- which is how "press 9 to speak to a nurse" came to be
+    dropped from every call in every language that had audio, including the one
+    we had just finished recording.
+    """
     from app.telephony import ivr
 
-    composed = ivr.compose(db, "dagbani", [
+    xml = ivr.utterance(db, "http://x", "dagbani", [
+        ("danger_bleeding", "Are you bleeding?"),
         (None, "Some runtime message."),
-        ("birth_plan", "Have you set aside money?"),
     ])
-    assert "Some runtime message." in composed
-    assert any(ch in composed for ch in "ɛɣŋʒɔ"), \
-        "the catalogue part fell back to English"
+    assert "<Play" in xml, "the recorded part was not played"
+    assert "Some runtime message." in xml, "the runtime part was thrown away"
+
+
+def test_the_escape_hint_survives_a_question_that_has_a_recording(db):
+    """It has its own catalogue entry and its own clip. Nothing played it."""
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    patient.language = "dagbani"
+    db.flush()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="dagbani")
+    db.flush()
+
+    ivr.advance(db, session, None, "http://x", "http://x/cb")
+    turn = ivr.advance(db, session, "1", "http://x", "http://x/cb")
+    assert "press 9" in turn.xml.lower(), \
+        "the only way to reach a human was dropped from the call"
 
 
 # --------------------------------------------- nutrition truth and affordability
@@ -1191,3 +1217,186 @@ def test_saving_a_name_does_not_claim_the_person_agreed(client, db, auth):
                       json={"role": "payer", "name": "Uncle"}).json()
     payer = [m for m in body["members"] if m["role"] == "payer"][0]
     assert payer["confirmed"] is False
+
+
+def test_the_simulator_shows_what_she_actually_hears(client, db, auth):
+    """The panel ran backwards, then showed text no handset would produce.
+
+    A <Play> is a recording in her language, so she hears the translated
+    wording; a <Say> is the English voice, so she hears English. Printing them
+    identically is what made the coverage number abstract.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    patient.language = "dagbani"
+    db.flush()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                               purpose="outreach", language="dagbani")
+    db.commit()
+
+    client.post("/api/simulator/press", headers=auth,
+                json={"session_id": session.id, "digit": None})
+    body = client.post("/api/simulator/press", headers=auth,
+                       json={"session_id": session.id, "digit": "1"}).json()
+
+    assert "in_language" not in body
+    # The bleeding question has a Dagbani recording, so it is heard in Dagbani
+    # and glossed in English.
+    assert any(ch in body["spoken"] for ch in "ɛɣŋʒɔ"), \
+        "the recorded Dagbani line is not on screen"
+    assert body["english"], "no English gloss for whoever is watching"
+    assert "bleeding" in body["english"].lower()
+
+
+# ----------------------------------------------------------------- boundaries
+
+
+def test_the_language_parameter_cannot_write_outside_the_audio_folder(client, db, auth):
+    """An authenticated worker could create directories anywhere on the box.
+
+    `language` arrived as a free query string and became a path segment under
+    audio/, so "../../../../tmp/x" was an arbitrary directory create and file
+    write. It also minted eighty catalogue rows per distinct string, making the
+    same parameter an unbounded write into the database.
+    """
+    from app.models import Phrase
+
+    before = db.query(Phrase).count()
+    for hostile in ("../../../../tmp/pwned", "..%2f..%2fetc", "english/../..",
+                    "dagbani/../../tmp"):
+        r = client.get("/api/language/phrases", headers=auth,
+                       params={"language": hostile})
+        assert r.status_code == 422, \
+            "{!r} was accepted as a language".format(hostile)
+    db.expire_all()
+    assert db.query(Phrase).count() == before, "junk phrase rows were created"
+
+
+def test_write_audio_refuses_to_escape_its_root_even_if_called_directly(db):
+    """The API whitelists, but the function that touches disk must not rely on it."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    wav = (b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt "
+           + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
+           + (1).to_bytes(2, "little") + (8000).to_bytes(4, "little")
+           + (16000).to_bytes(4, "little") + (2).to_bytes(2, "little")
+           + (16).to_bytes(2, "little") + b"data" + (0).to_bytes(4, "little"))
+    rogue = Phrase(language="../../../../tmp", key="pwned", category="danger",
+                   source_text="x")
+    db.add(rogue)
+    db.flush()
+    with pytest.raises(ValueError):
+        pipeline.write_audio(db, rogue, wav)
+
+
+def test_a_file_is_named_after_what_it_actually_is(db):
+    """Everything was saved as .wav, so an mp3 was served under a lying name."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "kusaal")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "kusaal",
+                        Phrase.key == "escape_hint").first())
+    pipeline.write_audio(db, phrase, b"ID3\x04\x00" + b"\x00" * 3000)
+    assert phrase.audio_path.endswith(".mp3")
+
+    from pathlib import Path
+    written = pipeline.AUDIO_ROOT / phrase.audio_path
+    assert written.exists()
+    written.unlink()
+
+
+def test_one_facility_cannot_read_or_rewrite_another_ones_care_circle(client, db, auth):
+    """Authentication proves who; it never proved whether.
+
+    The emergency SMS is sent to the number in this table, so an overwrite
+    silently redirects "she needs to go to the health centre now" to a
+    stranger's handset.
+    """
+    from app.models import Facility, User
+    from app.security import hash_pin
+
+    other_facility = Facility(name="Far Away CHPS", community="Elsewhere",
+                              region="Upper West")
+    db.add(other_facility)
+    db.flush()
+    outsider = User(name="Outside Worker", phone="+233209999999", role="cho",
+                    pin_hash=hash_pin("1234"), facility_id=other_facility.id)
+    db.add(outsider)
+    db.commit()
+
+    token = client.post("/api/auth/login",
+                        json={"phone": "+233209999999", "pin": "1234"}
+                        ).json()["token"]
+    theirs = {"Authorization": "Bearer {}".format(token)}
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    assert client.get("/api/circle/{}".format(patient.id),
+                      headers=theirs).status_code == 404
+    r = client.put("/api/circle/{}".format(patient.id), headers=theirs,
+                   json={"role": "decision_maker", "name": "Attacker",
+                         "phone": "+233000000000"})
+    assert r.status_code == 404
+
+    # And her own worker is unaffected.
+    mine = client.get("/api/circle/{}".format(patient.id), headers=auth).json()
+    decision = [m for m in mine["members"] if m["role"] == "decision_maker"][0]
+    assert decision["phone"] != "+233000000000"
+
+
+def test_changing_a_care_circle_number_leaves_a_trace(client, db, auth):
+    """The only clinical table that never touched the append-only log."""
+    from app.models import Event
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    before = db.query(Event).filter(
+        Event.event_type == "care_circle_set").count()
+    client.put("/api/circle/{}".format(patient.id), headers=auth,
+               json={"role": "decision_maker", "name": "Mahamadu Fuseini",
+                     "phone": "+233240000199"})
+    db.expire_all()
+    rows = (db.query(Event).filter(Event.event_type == "care_circle_set")
+              .order_by(Event.recorded_at.desc()).all())
+    assert len(rows) == before + 1
+    assert rows[0].payload["now"]["phone"] == "+233240000199"
+    assert rows[0].payload["was"]["phone"] != "+233240000199", \
+        "the number it replaced was not recorded"
+
+
+def test_a_column_added_after_the_database_existed_is_added_to_it(tmp_path):
+    """create_all never alters an existing table, so new columns were missing.
+
+    The first query naming one failed with "no such column" on any deployment
+    with a persistent disk -- which is exactly what render.yaml invites you to
+    turn on.
+    """
+    from sqlalchemy import Column, MetaData, String, Table, create_engine, inspect, text
+    from app.migrate import add_missing_columns
+    from app.db import Base
+
+    url = "sqlite:///{}".format(tmp_path / "old.db")
+    engine = create_engine(url)
+
+    # A database created before `previous_text` existed.
+    old = MetaData()
+    Table("phrases", old,
+          Column("id", String, primary_key=True),
+          Column("language", String),
+          Column("key", String))
+    old.create_all(engine)
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO phrases (id, language, key) "
+                       "VALUES ('1', 'dagbani', 'closing')"))
+
+    Base.metadata.create_all(bind=engine)
+    added = add_missing_columns(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("phrases")}
+    assert "previous_text" in columns, "the missing column was not added"
+    assert any("previous_text" in a for a in added)
+    with engine.begin() as c:
+        assert c.execute(text("SELECT COUNT(*) FROM phrases")).scalar() == 1, \
+            "existing rows were lost"

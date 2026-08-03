@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from .. import events
 from ..db import get_db
 from ..models import CareCircleMember, Driver, Patient, User
-from ..security import current_user
+from ..security import current_user, patient_in_reach
 
 router = APIRouter(prefix="/api/circle", tags=["care circle"])
 
@@ -38,8 +39,7 @@ def roles():
 @router.get("/{patient_id}")
 def get_circle(patient_id: str, db: Session = Depends(get_db),
                user: User = Depends(current_user)):
-    if db.get(Patient, patient_id) is None:
-        raise HTTPException(404, "No such patient")
+    patient_in_reach(db, patient_id, user)
     rows = {m.role: m for m in db.query(CareCircleMember).filter(
         CareCircleMember.patient_id == patient_id).all()}
     out = []
@@ -76,8 +76,7 @@ class MemberIn(BaseModel):
 @router.put("/{patient_id}")
 def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
            user: User = Depends(current_user)):
-    if db.get(Patient, patient_id) is None:
-        raise HTTPException(404, "No such patient")
+    patient_in_reach(db, patient_id, user)
     if body.role not in {r["role"] for r in ROLES}:
         raise HTTPException(422, "Unknown role")
 
@@ -88,6 +87,12 @@ def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
         member = CareCircleMember(patient_id=patient_id, role=body.role,
                                   name=body.name)
         db.add(member)
+    # What it was, before it becomes what it is. This table is where an
+    # emergency SMS gets its destination, so a silent overwrite of a phone
+    # number is a safety event and has to leave a trace -- it was the only
+    # clinical table in the system that never touched the event log.
+    was = {"name": member.name, "phone": member.phone, "detail": member.detail}
+
     member.name = body.name.strip()
     member.phone = (body.phone or "").strip() or None
     member.detail = (body.detail or "").strip() or None
@@ -96,6 +101,13 @@ def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
     member.confirmed = body.confirmed
     if body.role == "driver" and member.phone:
         _ensure_driver(db, patient_id, member)
+
+    now = {"name": member.name, "phone": member.phone, "detail": member.detail}
+    if now != was:
+        events.append(db, patient_id=patient_id, actor_id=user.id,
+                      event_type="care_circle_set",
+                      payload={"role": body.role, "was": was, "now": now,
+                               "confirmed": bool(member.confirmed)})
     db.commit()
     return get_circle(patient_id, db, user)
 

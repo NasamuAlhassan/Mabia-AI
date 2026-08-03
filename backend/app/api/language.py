@@ -14,6 +14,23 @@ from ..security import current_user
 router = APIRouter(prefix="/api/language", tags=["language"])
 
 
+def known_language(language: str) -> str:
+    """Reject any language this platform does not speak, before it reaches disk.
+
+    `language` arrives as a free query string and ends up as a path segment
+    under audio/, so "../../../../tmp/x" was an authenticated arbitrary
+    directory create and file write anywhere the process could reach. It also
+    minted eighty catalogue rows per distinct string, so the same parameter was
+    an unbounded write into the database.
+
+    A whitelist rather than a sanitiser: the set of languages is four, it is
+    known at import time, and there is no reason to accept anything else.
+    """
+    if language not in pipeline.ALL_LANGUAGES:
+        raise HTTPException(422, "Not a language this platform speaks")
+    return language
+
+
 @router.get("/status")
 def status(db: Session = Depends(get_db), user: User = Depends(current_user)):
     for language in pipeline.ALL_LANGUAGES:
@@ -32,6 +49,7 @@ def status(db: Session = Depends(get_db), user: User = Depends(current_user)):
 def phrases(language: str, db: Session = Depends(get_db),
             user: User = Depends(current_user),
             category: Optional[str] = None, missing_audio: bool = False):
+    known_language(language)
     pipeline.sync_catalogue(db, language)
     db.commit()
     query = db.query(Phrase).filter(Phrase.language == language)
@@ -53,6 +71,7 @@ def phrases(language: str, db: Session = Depends(get_db),
 @router.post("/translate")
 def translate(language: str, db: Session = Depends(get_db),
               user: User = Depends(current_user), limit: int = 200):
+    known_language(language)
     out = pipeline.translate_pending(db, language, limit=limit)
     db.commit()
     return out
@@ -61,6 +80,7 @@ def translate(language: str, db: Session = Depends(get_db),
 @router.post("/speak")
 def speak(language: str, db: Session = Depends(get_db),
           user: User = Depends(current_user), limit: int = 200):
+    known_language(language)
     out = pipeline.speak_translated(db, language, limit=limit)
     db.commit()
     return out
@@ -130,6 +150,7 @@ def clear_audio(phrase_id: str, db: Session = Depends(get_db),
 @router.get("/recording-pack")
 def recording_pack(language: str, db: Session = Depends(get_db),
                    user: User = Depends(current_user)):
+    known_language(language)
     """What a native speaker sits down and reads, in order."""
     pipeline.sync_catalogue(db, language)
     db.commit()
@@ -140,6 +161,7 @@ def recording_pack(language: str, db: Session = Depends(get_db),
 @router.post("/preview")
 def preview(text: str, language: str, db: Session = Depends(get_db),
             user: User = Depends(current_user)):
+    known_language(language)
     """Translate an arbitrary line — used to check the pipeline is live."""
     result = khaya.translate(text, language)
     if not result.ok:

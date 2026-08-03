@@ -20,7 +20,7 @@ export default function Simulator() {
   useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t) }, [])
 
   const [pressing, setPressing] = useState(false)
-  const [native, setNative] = useState('')
+  const [english, setEnglish] = useState('')
   const [error, setError] = useState('')
 
   async function press(sessionId, digit) {
@@ -33,7 +33,7 @@ export default function Simulator() {
                              { session_id: sessionId, digit })
       setActive(sessionId)
       setScreen(out.spoken || '(silence)')
-      setNative(out.in_language || '')
+      setEnglish(out.english || '')
       setEnded(out.ended)
       load()
     } catch (e) {
@@ -78,12 +78,15 @@ export default function Simulator() {
             <div className="screen" role="status" aria-live="polite">
               {active === h.session_id ? screen
                 : h.ringing ? 'Ringing… press Answer' : 'In progress'}
-              {active === h.session_id && native && (
+              {/* The big line is what she actually hears. The gloss below is
+                  for whoever is watching the screen -- which, in a demo, is a
+                  room of people who do not speak Dagbani. */}
+              {active === h.session_id && english && (
                 <span className="native">
-                  {native}
                   <span className="muted tiny" style={{ display: 'block' }}>
-                    what she would hear, in {h.language} — translated by Khaya
+                    in English, for you — she hears the {h.language} above
                   </span>
+                  {english}
                 </span>
               )}
             </div>

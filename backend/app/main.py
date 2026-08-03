@@ -57,6 +57,12 @@ app.include_router(metrics.router)
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    # create_all never alters an existing table, so every column added since a
+    # database was first created is missing from it until this runs.
+    from .migrate import add_missing_columns
+    changed = add_missing_columns(engine)
+    if changed:
+        print("schema: added {}".format(", ".join(changed)))
     if settings.seed_on_start:
         from .db import SessionLocal
         from .seed import seed

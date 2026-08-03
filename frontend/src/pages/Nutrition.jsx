@@ -142,7 +142,7 @@ function Series({ label, values, trend, thresholds }) {
             position: 'absolute', left: at(v), top: 4 + i * 5,
             width: 8, height: 8, borderRadius: '50%', marginLeft: -4,
             background: i === values.length - 1
-              ? (v < thresholds[0] ? 'var(--emergency)' : 'var(--indigo-700)')
+              ? (v < thresholds[0] ? 'var(--emergency)' : 'var(--forest-700)')
               : 'var(--line-strong)',
           }} />
         ))}

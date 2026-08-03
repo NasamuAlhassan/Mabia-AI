@@ -1,17 +1,5 @@
 /* Mabia AI — a CHPS worker's console.
  *
- * Follows the team's own mockups: a deep forest rail carrying the identity, a
- * quiet white working surface, and risk stated in a pill you can read across a
- * room. Green because it reads as health and care in Ghana, and because the
- * default of every health-tech product since 2015 is a blue this deliberately
- * is not.
- *
- * Deliberately NOT following the Material token dump that shipped alongside
- * those mockups — Inter everywhere over a #00288e blue is the generic look the
- * screenshots themselves improved on.
- *
- * Originally written for a thumb in bright sun, and that still holds.
- *
  * Three constraints drove every decision here, and none of them are aesthetic:
  *
  * 1. She is outdoors. A dark UI in direct sunlight is harder to read, not
@@ -23,10 +11,16 @@
  *    750 silently snap to 700 on Android, so a hierarchy built on them exists
  *    only on the designer's laptop.
  *
- * The palette comes from Northern Ghana rather than from health-tech: harmattan
- * bone as the ground, indigo from the fugu smock as chrome, ochre from laterite
- * as the identity accent. Kente and Adinkra are deliberately absent — those are
- * Akan, and using them here would be a misattribution in Dagbon.
+ * The palette follows the team's mockups: a deep forest rail carrying the
+ * identity, a quiet near-white working surface, ochre from laterite as the
+ * accent. Green rather than blue because it reads as health and care in Ghana,
+ * and because the default of every health-tech product since 2015 is a blue
+ * this deliberately is not. The Material token dump that shipped alongside the
+ * mockups — Inter over #00288e — is not followed; it is the generic look the
+ * screenshots themselves improved on.
+ *
+ * Kente and Adinkra are deliberately absent. Those are Akan, and using them
+ * here would be a misattribution in Dagbon.
  *
  * Red is reserved. It appears only on an active emergency. Urgency is carried
  * by ink coverage and position first, colour second, so the triage still works
@@ -56,10 +50,6 @@
   --ochre-ink:    #8A5A00;
   --ochre-tint:   #FDF1D8;
 
-  /* Aliases so existing components keep working during the migration. */
-  --indigo-900:   var(--forest-900);
-  --indigo-700:   var(--forest-700);
-
   /* Alarm — used nowhere else */
   --emergency:      #A5121C;
   --emergency-tint: #FBE9E7;
@@ -83,7 +73,6 @@
   --line: #000000; --line-strong: #000000;
   --forest-900: #000000; --forest-800: #000000; --forest-700: #000000;
   --forest-600: #000000; --forest-tint: #FFFFFF; --forest-ink: #003323;
-  --indigo-900: #000000; --indigo-700: #000000;
   --ochre: #7A4E00; --ochre-ink: #5C3A00; --ochre-tint: #FFFFFF;
   --emergency: #8A0000; --emergency-tint: #FFFFFF;
   --ok: #004D2A; --ok-tint: #FFFFFF;
@@ -127,7 +116,7 @@ code { font-size: .82em; color: var(--ink-soft); }
   display: flex; align-items: center; gap: var(--s2);
   padding: var(--s3) var(--s4);
   padding-top: max(var(--s3), env(safe-area-inset-top));
-  background: var(--indigo-900); color: #fff;
+  background: var(--forest-900); color: #fff;
 }
 .topbar .brand {
   font-weight: 700; letter-spacing: -.01em; font-size: 1.05rem;
@@ -177,7 +166,7 @@ code { font-size: .82em; color: var(--ink-soft); }
   border-top: 3px solid transparent;
 }
 .tabbar a.active {
-  color: var(--ochre-ink); font-weight: 700; border-top-color: var(--ochre);
+  color: var(--forest-700); font-weight: 700; border-top-color: var(--forest-700);
 }
 .tabbar .glyph { font-size: 1.2rem; line-height: 1; }
 
@@ -298,7 +287,7 @@ button, .btn {
   gap: var(--s2); text-decoration: none;
 }
 button:disabled { opacity: .55; }
-button.primary { background: var(--indigo-700); border-color: var(--indigo-700);
+button.primary { background: var(--forest-700); border-color: var(--forest-700);
                  color: #fff; }
 button.danger  { background: var(--emergency); border-color: var(--emergency);
                  color: #fff; }
@@ -318,7 +307,7 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
   font-family: inherit; color: var(--ink); font-weight: 500;
 }
 .chip[aria-pressed="true"], .chip.on {
-  background: var(--indigo-700); color: #fff; border-color: var(--indigo-700);
+  background: var(--forest-700); color: #fff; border-color: var(--forest-700);
   font-weight: 700;
 }
 
@@ -367,7 +356,7 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
 
 .metric-hero { padding: var(--s5) 0 var(--s4); }
 .metric-hero .n {
-  font-size: 4rem; font-weight: 700; line-height: 1; color: var(--indigo-900);
+  font-size: 4rem; font-weight: 700; line-height: 1; color: var(--forest-900);
   letter-spacing: -.03em;
 }
 .metric-hero .k { font-size: 1.05rem; margin-top: var(--s2); max-width: 34ch; }
@@ -375,7 +364,7 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
 .funnel { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s3); }
 .funnel-step { display: flex; align-items: center; gap: var(--s3); }
 .funnel-bar {
-  height: 34px; background: var(--indigo-700); border-radius: 2px;
+  height: 34px; background: var(--forest-700); border-radius: 2px;
   min-width: 3px; display: flex; align-items: center; padding: 0 var(--s2);
   color: #fff; font-weight: 700; font-size: .88rem;
 }
@@ -399,7 +388,7 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
 }
 
 .sms {
-  border-left: var(--band) solid var(--indigo-700);
+  border-left: var(--band) solid var(--forest-700);
   padding: var(--s2) var(--s3); background: var(--card);
   border-top: 1px solid var(--line); border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -424,7 +413,7 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
            margin: var(--s4) 0; }
 .pindot { width: 16px; height: 16px; border-radius: 50%;
           border: 2px solid var(--line-strong); }
-.pindot.filled { background: var(--indigo-700); border-color: var(--indigo-700); }
+.pindot.filled { background: var(--forest-700); border-color: var(--forest-700); }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

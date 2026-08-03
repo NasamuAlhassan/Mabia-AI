@@ -329,16 +329,42 @@ def write_audio(db: Session, phrase: Phrase, data: bytes,
     ok, reason = looks_like_audio(data)
     if not ok:
         raise ValueError(reason)
-    folder = AUDIO_ROOT / phrase.language
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / (phrase.key + ".wav")
+
+    # The API whitelists the language, but this function is the one that
+    # touches the filesystem and it must not depend on its caller having been
+    # careful. Both segments are resolved and checked to be inside the audio
+    # root, so a language or key carrying "../" cannot write outside it.
+    root = AUDIO_ROOT.resolve()
+    path = (root / phrase.language / (phrase.key + _extension(data))).resolve()
+    if root not in path.parents:
+        raise ValueError("That language or key would write outside the audio "
+                         "folder, so it was refused.")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
-    phrase.audio_path = "{}/{}.wav".format(phrase.language, phrase.key)
+    phrase.audio_path = "{}/{}".format(phrase.language, path.name)
     phrase.audio_source = source
     phrase.audio_bytes = len(data)
     phrase.updated_at = dt.datetime.utcnow()
     db.flush()
     return phrase
+
+
+def _extension(data: bytes) -> str:
+    """Name the file after what it actually is.
+
+    Everything used to be saved as .wav regardless of contents, so an MP3 or an
+    Ogg upload was accepted and then served to the telephony provider under a
+    name that lied about it -- the precise failure the header check above exists
+    to prevent, reintroduced one line later.
+    """
+    if data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return ".mp3"
+    if data[:4] == b"OggS":
+        return ".ogg"
+    if data[:4] == b"fLaC":
+        return ".flac"
+    return ".wav"
 
 
 def too_long_to_speak(db: Session, language: str):

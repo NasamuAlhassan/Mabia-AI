@@ -92,9 +92,8 @@ async def press(body: PressIn, db: Session = Depends(get_db),
     xml = response.body.decode() if hasattr(response, "body") else ""
 
     refreshed = db.get(CallSession, body.session_id)
-    return {"xml": xml, "spoken": _spoken(xml),
-            "in_language": _in_language(db, refreshed_language(db, body.session_id),
-                                        _spoken(xml)),
+    spoken, english = _render(db, refreshed_language(db, body.session_id), xml)
+    return {"xml": xml, "spoken": spoken, "english": english,
             "options": _options(xml),
             "state": refreshed.state if refreshed else None,
             "ended": bool(refreshed.ended_at) if refreshed else True,
@@ -106,25 +105,38 @@ def refreshed_language(db, session_id):
     return s.language if s else "english"
 
 
-def _in_language(db, language: str, english: str) -> str:
-    """The same line as it would be spoken to her, if we have the wording."""
-    from ..models import Phrase
-    if not english or language == "english":
-        return ""
-    row = (db.query(Phrase)
-             .filter(Phrase.language == language,
-                     Phrase.source_text.like(english.strip()[:40] + "%"))
-             .first())
-    return row.translated_text if row and row.translated_text else ""
+def _render(db, language: str, xml: str):
+    """What she actually hears, and the English for whoever is watching.
 
+    Two different things, and the panel used to conflate them. A <Play> is a
+    recording in her language, so she hears the translated wording -- which is
+    on screen only if we look up the clip's key. A <Say> is the provider's
+    English voice, so she hears English and there is nothing to translate.
 
-def _spoken(xml: str) -> str:
+    Rendering them the same way is what made the coverage number abstract: on
+    this screen you can see, line by line, which parts of the call reached her
+    in her own language and which did not.
+    """
     import re
-    says = re.findall(r"<Say>(.*?)</Say>", xml, flags=re.S)
-    plays = re.findall(r'<Play url="(.*?)"', xml)
-    parts = [s.strip() for s in says]
-    parts += ["[audio: {}]".format(p.rsplit("/", 1)[-1]) for p in plays]
-    return " ".join(parts)
+    from ..models import Phrase
+
+    heard, english = [], []
+    for say, url in re.findall(r"<Say>(.*?)</Say>|<Play url=\"(.*?)\"", xml, re.S):
+        if say:
+            heard.append(say.strip())
+            english.append(say.strip())
+            continue
+        key = url.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        row = (db.query(Phrase)
+                 .filter(Phrase.language == language, Phrase.key == key).first())
+        heard.append((row.translated_text if row and row.translated_text
+                      else "[recording: {}]".format(key)))
+        english.append((row.source_text if row and row.source_text
+                        else "[recording: {}]".format(key)))
+
+    spoken = " ".join(h for h in heard if h)
+    gloss = " ".join(e for e in english if e)
+    return spoken, ("" if gloss == spoken else gloss)
 
 
 def _options(xml: str):

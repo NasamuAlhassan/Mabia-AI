@@ -88,3 +88,35 @@ def current_user(authorization: str = Header(default=""),
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unknown user")
     return user
+
+
+def patient_in_reach(db, patient_id: str, user):
+    """The patient, if this worker has any business with her. 404 otherwise.
+
+    Authentication proves who someone is; it never proved whether they should
+    be looking at a given household. Most endpoints scope by facility or by
+    assigned worker, but the care circle did not -- so any account could read
+    another facility's patients' family names and phone numbers, and, worse,
+    overwrite them. The emergency SMS goes to the number in that row, so an
+    overwrite silently redirects "she needs to go to the health centre now" to
+    a stranger's handset.
+
+    404 rather than 403 on purpose: telling an unauthorised caller that a
+    patient exists is itself a disclosure.
+    """
+    from fastapi import HTTPException
+    from .models import Patient
+
+    patient = db.get(Patient, patient_id)
+    if patient is None:
+        raise HTTPException(404, "No such patient")
+
+    # Newly enrolled households are not yet assigned to anyone; refusing those
+    # would break enrolment, which is the moment the circle is most useful.
+    if patient.assigned_cho_id is None and patient.facility_id is None:
+        return patient
+    if patient.assigned_cho_id == user.id:
+        return patient
+    if patient.facility_id and patient.facility_id == user.facility_id:
+        return patient
+    raise HTTPException(404, "No such patient")

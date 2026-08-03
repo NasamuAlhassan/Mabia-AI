@@ -48,22 +48,29 @@ DONE = "done"
 
 
 def _audio_url(base_url: str, language: str, key: str) -> Optional[str]:
-    """A clip for this line in this language, if one exists on disk."""
+    """A clip for this line in this language, if one exists on disk.
+
+    With no public base URL configured -- a fresh checkout, or the simulator on
+    a laptop -- this falls back to a root-relative path rather than giving up.
+    The old behaviour was to return nothing, so on a machine that had not been
+    deployed yet every recording in the repository was invisible and the whole
+    voice pipeline demoed as though it did not exist. Africa's Talking needs an
+    absolute URL, but if no base URL is set there is no real call to serve.
+    """
     from pathlib import Path
     root = Path(__file__).resolve().parents[2] / "audio" / language
-    for suffix in (".wav", ".mp3"):
+    for suffix in (".wav", ".mp3", ".ogg"):
         if (root / (key + suffix)).exists():
-            return "{}/audio/{}/{}{}".format(base_url.rstrip("/"), language, key, suffix)
+            return "{}/audio/{}/{}{}".format(
+                base_url.rstrip("/"), language, key, suffix)
     return None
 
 
 def spoken_text(db, language: str, key: str, fallback: str) -> str:
-    """The words for this line: the reviewed translation if we have one.
+    """The reviewed translation for this line, or None if we have none.
 
-    Falls back to the English source. This is the honest position while Khaya's
-    speech service is down -- the wording is genuinely in her language and can
-    be read on screen, but what a handset actually plays is English until there
-    is a clip. The Voice screen reports exactly that gap rather than hiding it.
+    Only ever used to choose the words for a clip or to show on screen. It is
+    deliberately NOT used to fill a <Say>: see say_or_play below.
     """
     try:
         from ..models import Phrase
@@ -77,58 +84,81 @@ def spoken_text(db, language: str, key: str, fallback: str) -> str:
     return fallback
 
 
-def Turn_xml_ask(db, base_url, language, text, callback_url) -> str:
-    """A GetDigits whose prompt is a composed utterance rather than one clip."""
-    return (
-        '<Response><GetDigits numDigits="1" timeout="{}" callbackUrl="{}">'
-        "<Say>{}</Say></GetDigits></Response>"
-    ).format(DIGIT_TIMEOUT, escape(callback_url, {'"': "&quot;"}), escape(text))
+def say_or_play(db, base_url: str, language: str, key: Optional[str],
+                text: str) -> str:
+    """One utterance: her recorded clip if there is one, else English.
 
+    <Say> is the provider's English text-to-speech voice. There is no Dagbani,
+    Kusaal, Frafra or Gonja voice behind it. Handing it Dagbani orthography
+    does not produce Dagbani -- it produces an English voice failing at Dagbani,
+    which is less use to the woman on the line than plain English is. So the
+    translation is what we RECORD and what we SHOW; English is what we SAY when
+    no recording exists.
 
-def Turn_xml_tell(db, base_url, language, text) -> str:
-    return "<Response><Say>{}</Say></Response>".format(escape(text))
-
-
-def compose(db, language: str, parts) -> str:
-    """Several catalogue lines spoken as one utterance, each translated.
-
-    Some turns are built at runtime -- a nutrition message followed by the
-    birth-plan question, or advice plus a next-visit date plus a goodbye. There
-    is no single clip for those, and there was previously no translation either:
-    they were assembled from English and passed under an invented key that the
-    catalogue had never heard of, so 34 nutrition messages could never be
-    spoken in any language. Composing the *translated* pieces means a composed
-    turn is still in her language even though no clip can cover it.
+    That is why the Voice screen's coverage figure is the number that matters:
+    every point of it converts one of these <Say> fallbacks into a <Play> she
+    can actually understand.
     """
+    if key:
+        url = _audio_url(base_url or "", language, key)
+        if url:
+            return '<Play url="{}"/>'.format(escape(url, {'"': "&quot;"}))
+    return "<Say>{}</Say>".format(escape(text))
+
+
+def utterance(db, base_url: str, language: str, parts) -> str:
+    """Several lines spoken back to back, each resolved on its own.
+
+    Turns are frequently built from more than one catalogue line -- a danger
+    question plus the "press 9 for a nurse" hint, a nutrition message plus the
+    birth-plan question, advice plus a date plus a goodbye. Joining them into
+    one string and passing it under a single key was silently destructive: if a
+    clip existed for that key it was played and everything else in the string
+    was thrown away. That is how "press 9 to speak to a nurse" came to be
+    dropped from every call in every language that had audio -- including the
+    languages we had just finished recording.
+
+    Resolving each part separately means a clip covers the part it is a clip
+    of, and the rest still gets said.
+    """
+    out = []
+    for key, text in parts:
+        if not text:
+            continue
+        out.append(say_or_play(db, base_url, language, key, text))
+    return "".join(out) or "<Say>.</Say>"
+
+
+def compose_text(db, language: str, parts) -> str:
+    """The same parts as words, for the screen rather than the line."""
     said = []
     for key, fallback in parts:
         if not fallback:
             continue
-        said.append(spoken_text(db, language, key, fallback) if key
-                    else fallback)
+        said.append(spoken_text(db, language, key, fallback) if key else fallback)
     return " ".join(s for s in said if s)
 
 
-def speak(db, base_url: str, language: str, key: str, text: str) -> str:
-    """A recorded clip if one exists, else her language spoken, else English.
+def ask_parts(db, base_url, language, parts, callback_url) -> str:
+    return (
+        '<Response><GetDigits numDigits="1" timeout="{}" callbackUrl="{}">'
+        "{}</GetDigits></Response>"
+    ).format(DIGIT_TIMEOUT, escape(callback_url, {'"': "&quot;"}),
+             utterance(db, base_url, language, parts))
 
-    The fallback order matters and each step is a real degradation: a clip in
-    her language, then a synthetic voice reading her language, then English.
-    Only the last is a failure, and it is what every call was doing.
-    """
-    url = _audio_url(base_url, language, key) if base_url else None
-    if url:
-        return '<Play url="{}"/>'.format(escape(url, {'"': "&quot;"}))
-    return "<Say>{}</Say>".format(escape(spoken_text(db, language, key, text)))
+
+def tell_parts(db, base_url, language, parts) -> str:
+    return "<Response>{}</Response>".format(
+        utterance(db, base_url, language, parts))
+
+
+def speak(db, base_url: str, language: str, key: str, text: str) -> str:
+    return say_or_play(db, base_url, language, key, text)
 
 
 def ask(db, base_url: str, language: str, key: str, text: str,
         callback_url: str) -> str:
-    inner = speak(db, base_url, language, key, text)
-    return (
-        '<Response><GetDigits numDigits="1" timeout="{}" callbackUrl="{}">'
-        "{}</GetDigits></Response>"
-    ).format(DIGIT_TIMEOUT, escape(callback_url, {'"': "&quot;"}), inner)
+    return ask_parts(db, base_url, language, [(key, text)], callback_url)
 
 
 def tell(db, base_url: str, language: str, key: str, text: str) -> str:
@@ -264,9 +294,10 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         # She has agreed to talk, so now tell her how to reach a person. Said
         # here rather than in the greeting: it is only useful once she is in the
         # conversation, and it kept the greeting past the synthesis ceiling.
-        return Turn(ask(db, base_url, language, "danger_" + key,
-                        "{} {}".format(prompts.line("escape_hint"), text),
-                        callback_url))
+        return Turn(ask_parts(db, base_url, language, [
+            ("escape_hint", prompts.line("escape_hint")),
+            ("danger_" + key, text),
+        ], callback_url))
 
     # --- danger signs ----------------------------------------------------
     if state == DANGER:
@@ -293,9 +324,10 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             session.transcript = transcript
             db.flush()
             _, again = asked[session.cursor]
-            return Turn(ask(db, base_url, language, "danger_" + key,
-                            prompts.line("not_understood") + " " + again,
-                            callback_url))
+            return Turn(ask_parts(db, base_url, language, [
+                ("not_understood", prompts.line("not_understood")),
+                ("danger_" + key, again),
+            ], callback_url))
         else:
             # Re-ask once before giving up on the question.
             tries = answers.setdefault("retries", {})
@@ -305,9 +337,10 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
                 session.transcript = transcript
                 db.flush()
                 _, again = asked[session.cursor]
-                return Turn(ask(db, base_url, language, "danger_" + key,
-                                prompts.line("not_understood") + " " + again,
-                                callback_url))
+                return Turn(ask_parts(db, base_url, language, [
+                    ("not_understood", prompts.line("not_understood")),
+                    ("danger_" + key, again),
+                ], callback_url))
             answers.setdefault("danger", {})[key] = None
 
         nxt = session.cursor + 1
@@ -371,8 +404,8 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         bkey, btext = prompts.BIRTH_PLAN_QUESTION
         # The nutrition message is already translated by _nutrition_message;
         # the birth-plan question is a catalogue line, so it is looked up.
-        combined = compose(db, language, [(None, message), (bkey, btext)])
-        return Turn(Turn_xml_ask(db, base_url, language, combined, callback_url))
+        return Turn(ask_parts(db, base_url, language,
+                              [(None, message), (bkey, btext)], callback_url))
 
     # --- birth preparedness ------------------------------------------------
     if state == BIRTH_PLAN:
@@ -401,8 +434,7 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
 
         session.state = DONE
         db.flush()
-        return Turn(Turn_xml_tell(db, base_url, language,
-                                  compose(db, language, parts)),
+        return Turn(tell_parts(db, base_url, language, parts),
                     finished=True, note="completed")
 
     # --- anything unexpected ------------------------------------------------

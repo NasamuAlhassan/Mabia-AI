@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from ..models import Phrase
-from . import khaya
+from . import khaya, mms
 from .catalogue import catalogue
 
 AUDIO_ROOT = Path(__file__).resolve().parents[2] / "audio"
@@ -148,8 +148,27 @@ def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
                 Phrase.status.in_(["pending", "failed"])).count()}
 
 
+def providers_for(language: str) -> List[str]:
+    """Which synthesis routes exist for this language, best first.
+
+    Khaya first where it has a model: the voice is better. MMS second because
+    it runs here, needs no credits and cannot be rate-limited. A human recording
+    always outranks both and is never overwritten.
+    """
+    routes = []
+    if khaya.KHAYA_CODE.get(language):
+        routes.append("khaya")
+    if mms.available_for(language):
+        routes.append("mms")
+    return routes
+
+
 def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
-    """Synthesise audio for translated lines that have none."""
+    """Synthesise audio for translated lines that have none.
+
+    Tries each provider in turn. A quota exhausted at one does not end the job
+    if another can still speak the language.
+    """
     rows = (db.query(Phrase)
               .filter(Phrase.language == language,
                       Phrase.status.in_(["translated", "reviewed"]),
@@ -157,20 +176,49 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
               .limit(limit).all())
 
     made, failed, note = 0, 0, None
+    routes = providers_for(language)
+    if not routes:
+        return {"language": language, "generated": 0, "failed": 0,
+                "note": "No synthesis model exists for {} at any provider. "
+                        "These lines need a recorded human voice.".format(language),
+                "needs_recording": needs_recording_count(db, language)}
+
+    blocked = set()
     for phrase in rows:
-        result = khaya.synthesise(phrase.translated_text, language)
-        if not result.ok:
+        if len(phrase.translated_text or "") > MAX_SPOKEN_CHARS:
             failed += 1
-            note = result.error
-            phrase.error = result.error
-            # The service is down for all of them, not just this one.
-            break
-        made += 1
-        write_audio(db, phrase, result.audio, source="khaya_tts")
+            phrase.error = ("Too long to synthesise ({} characters). Shorten "
+                            "the English and re-translate.".format(
+                                len(phrase.translated_text)))
+            continue
+
+        for route in routes:
+            if route in blocked:
+                continue
+            if route == "khaya":
+                result = khaya.synthesise(phrase.translated_text, language)
+                ok, audio, error = result.ok, result.audio, result.error
+            else:
+                ok, audio, error = mms.synthesise(phrase.translated_text, language)
+
+            if ok:
+                made += 1
+                write_audio(db, phrase, audio, source=route + "_tts")
+                break
+            note = error
+            # A quota or an outage applies to every remaining line, not just
+            # this one. Stop asking that provider and try the next route.
+            if error and ("quota" in error.lower() or "429" in error
+                          or "unavailable" in error.lower()):
+                blocked.add(route)
+        else:
+            failed += 1
+            phrase.error = note
 
     db.flush()
     return {"language": language, "generated": made, "failed": failed,
-            "note": note,
+            "note": note, "routes": routes,
+            "blocked": sorted(blocked),
             "needs_recording": needs_recording_count(db, language)}
 
 
@@ -231,6 +279,8 @@ def status(db: Session, language: str) -> Dict:
         # matters for the claim "we speak her language".
         "spoken_coverage": round(100.0 * with_audio / total, 1) if total else 0.0,
         "too_long": too_long_to_speak(db, language),
+        "routes": providers_for(language),
+        "mms": mms.describe() if mms.available_for(language) else None,
     }
 
 

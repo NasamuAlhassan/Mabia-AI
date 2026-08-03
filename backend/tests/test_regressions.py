@@ -698,3 +698,46 @@ def test_the_circle_reports_what_is_still_missing(db, client, auth):
     assert body["missing"], "a partly-filled circle claimed to be complete"
     # Each role explains which delay it addresses, so the form teaches.
     assert all(m["delay"] for m in body["members"])
+
+
+# ------------------------------------------------- local speech (MMS)
+
+
+def test_the_pipeline_is_not_tied_to_one_paid_provider(db):
+    """Khaya is better where it has a model; it must not be the only route."""
+    from app.language import mms, pipeline
+
+    assert "khaya" in pipeline.providers_for("dagbani")
+    # Kusaal has both, so an exhausted quota at one does not end the job.
+    assert pipeline.providers_for("kusaal") == ["khaya", "mms"]
+    # Gonja has neither. That is stated, not silently empty.
+    assert pipeline.providers_for("gonja") == []
+    assert mms.available_for("gonja") is None
+
+
+def test_a_language_with_no_model_anywhere_says_so(db):
+    from app.language import pipeline
+    out = pipeline.speak_translated(db, "gonja", limit=5)
+    assert out["generated"] == 0
+    assert "recorded human voice" in out["note"]
+
+
+def test_kusaal_audio_came_from_the_local_model(db):
+    """Generated on this machine with no credits and no network at call time."""
+    from app.models import Phrase
+
+    rows = (db.query(Phrase)
+              .filter(Phrase.language == "kusaal",
+                      Phrase.audio_path.isnot(None)).all())
+    if not rows:
+        pytest.skip("no Kusaal clips in this checkout")
+    assert all(r.audio_source == "mms_tts" for r in rows)
+    assert all(r.audio_bytes > 5000 for r in rows), "a clip is suspiciously small"
+
+
+def test_mms_refuses_rather_than_returning_silence():
+    """A clip of nothing played down a phone line is worse than English."""
+    from app.language import mms
+    ok, audio, error = mms.synthesise("Hello", "dagbani")
+    assert ok is False
+    assert "No MMS model exists" in error

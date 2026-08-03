@@ -8,3 +8,9 @@ httpx==0.28.1
 # Locally the default is SQLite and this simply goes unused.
 psycopg2-binary==2.9.10
 pytest==8.3.4
+
+# Optional: local speech synthesis via Meta MMS, for languages Khaya cannot
+# reach and for when its quota is exhausted. The app runs without these -- the
+# pipeline reports the route as unavailable rather than failing.
+#   pip install torch transformers "numpy<2"
+# numpy is pinned below 2 because torch 2.2 is built against the 1.x ABI.

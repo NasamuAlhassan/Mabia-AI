@@ -44,6 +44,12 @@ RED_CLOSED = "red_closed"
 DELIVERED = "delivered"
 
 
+# How many unanswered food questions make a recall unusable rather than poor.
+# Three is a third of the women's instrument and well over a third of the
+# child's; below that the score still means something, above it it does not.
+UNMEASURED_AFTER = 3
+
+
 class Snapshot:
     """The folded view of one patient. Input to the risk engine."""
 
@@ -164,7 +170,15 @@ def _apply(snap: Snapshot, event: Event) -> None:
         snap.mdd_unknown = len(payload.get("unknown") or [])
         snap.mdd_instrument = payload.get("instrument")
         snap.mdd_missing = payload.get("missing", [])
-        if payload.get("score") is not None:
+        # Only recalls we actually managed to take. The history drives the
+        # "low on consecutive contacts" rule in the risk engine, and a call
+        # where she answered nothing scores zero -- so two bad phone lines in a
+        # row raised an AMBER and put her on a worker's list for a nutrition
+        # visit she does not need. The same mistake was fixed in the worklist
+        # and the metrics and missed here, which is the one place it becomes a
+        # clinical decision.
+        if (payload.get("score") is not None
+                and len(payload.get("unknown") or []) < UNMEASURED_AFTER):
             snap.mdd_history.append(payload["score"])
 
     elif kind == MUAC:

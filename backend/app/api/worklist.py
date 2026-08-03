@@ -10,6 +10,7 @@ from ..db import get_db
 from ..engines.risk import AMBER, GREEN, RED
 from ..models import Patient, PatientState, User
 from ..security import current_user
+from ..events import UNMEASURED_AFTER
 
 router = APIRouter(prefix="/api/worklist", tags=["worklist"])
 
@@ -84,7 +85,7 @@ def nutrition_worklist(db: Session = Depends(get_db),
             return round(series[-1] - series[0], 1)
         concern = (
             (state.mdd_score is not None and state.mdd_score < 5
-             and not (state.mdd_unknown or 0) >= 3)
+             and (state.mdd_unknown or 0) < UNMEASURED_AFTER)
             or (state.muac_mother is not None and state.muac_mother < 23.0)
             or (state.muac_child is not None and state.muac_child < 12.5)
             or state.ifa_adherent is False)

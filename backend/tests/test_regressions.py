@@ -2841,3 +2841,68 @@ def test_a_variant_set_cannot_reach_an_unrelated_number(db):
     # Junk does not produce a set that matches everything.
     for junk in ("", "   ", None):
         assert phones.variants(junk) == set()
+
+
+def test_two_bad_phone_lines_are_not_a_nutrition_problem(db):
+    """The risk engine is where this became a clinical decision.
+
+    A call where she answers nothing scores zero, and the "low on consecutive
+    contacts" rule reads the score history -- so two dropped calls in a row
+    raised an AMBER and put her on a worker's list for a visit she does not
+    need. The same mistake was fixed in the worklist and the metrics and missed
+    here, which is the only place it changes what a human does.
+    """
+    from app.models import PatientState
+    from app.telephony import ivr, service as tel
+
+    patient = Patient(name="Bad Reception", phone="+233240000905",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+
+    for _ in range(2):
+        session, _ = tel.start_call(db, phone=patient.phone,
+                                    patient_id=patient.id, purpose="outreach",
+                                    language="english")
+        session.include_diet = True
+        db.flush()
+        ivr.advance(db, session, None, "", "http://x/cb")
+        ivr.advance(db, session, "1", "", "http://x/cb")
+        for _ in range(100):
+            turn = ivr.advance(db, session, None, "", "http://x/cb")
+            if turn.finished:
+                break
+        ivr.finalise(db, session)
+    db.flush()
+
+    state = db.get(PatientState, patient.id)
+    assert (state.mdd_unknown or 0) >= 8
+    assert "diet.persistently_low" not in (state.reason_codes or []), \
+        "two unanswered calls were read as a deficient diet"
+
+
+def test_two_genuinely_low_recalls_still_raise_it(db):
+    """The guard must not swallow the real signal it sits next to."""
+    from app import events as evmod
+    from app.models import PatientState
+
+    patient = Patient(name="Genuinely Low", phone="+233240000906",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+
+    for _ in range(2):
+        evmod.append(db, patient_id=patient.id, actor_id="system",
+                     event_type=evmod.DIET_RECALL,
+                     payload={"instrument": "mdd_w", "score": 2, "total": 10,
+                              "present": ["grains", "other_veg"],
+                              "missing": ["flesh", "dark_leafy", "eggs",
+                                          "dairy", "pulses", "nuts_seeds",
+                                          "vita_fruit_veg", "other_fruit"],
+                              "unknown": []})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+
+    state = db.get(PatientState, patient.id)
+    assert "diet.persistently_low" in (state.reason_codes or []), \
+        "a real pattern of low diversity stopped being flagged"

@@ -11,6 +11,7 @@ from ..data.foods import CHILD_MINIMUM, MDDW_MINIMUM
 from ..models import (Contact, Dispatch, Emergency, Event, Patient,
                       PatientState, User)
 from ..security import current_user
+from ..events import UNMEASURED_AFTER
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
@@ -45,7 +46,7 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
     # the same time.
     mdd_rows = [s for s in db.query(PatientState)
                 .filter(PatientState.mdd_score.isnot(None)).all()
-                if (s.mdd_unknown or 0) < 3]
+                if (s.mdd_unknown or 0) < UNMEASURED_AFTER]
     women = [s for s in mdd_rows if s.mdd_instrument == "mdd_w"]
     children = [s for s in mdd_rows if s.mdd_instrument == "mdd_child"]
     women_ok = sum(1 for s in women if (s.mdd_score or 0) >= MDDW_MINIMUM)

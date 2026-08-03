@@ -2792,3 +2792,52 @@ def test_a_shared_handset_does_not_put_one_womans_name_on_anothers_alarm(db):
     assert "shared_phone" in raised.reason_codes[0], \
         "named one woman on an alarm that may be the other's: {}".format(
             raised.reason_codes)
+
+
+def test_two_workers_answering_to_one_handset_each_reach_their_own_account(client, db):
+    """The collision fix was itself only half a fix.
+
+    Matching every spelling but then taking .first() meant the second worker's
+    PIN was verified against the first worker's hash -- the same permanent
+    lockout the change was written to remove, one layer down. The earlier test
+    passed because only one row existed in it.
+    """
+    from app.security import hash_pin
+
+    # Exactly what a legacy database looks like: one row normalised, one not,
+    # both the same handset. Inserted raw to bypass the ORM listener.
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) VALUES "
+        "('shareA', 'Worker A', '+233209998881', 'cho', :a)"), {"a": hash_pin("1111")})
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) VALUES "
+        "('shareB', 'Worker B', '0209998881', 'cho', :b)"), {"b": hash_pin("2222")})
+    db.commit()
+
+    for pin, expected in (("1111", "Worker A"), ("2222", "Worker B")):
+        for spelling in ("0209998881", "+233209998881", "233 209 998 881"):
+            r = client.post("/api/auth/login",
+                            json={"phone": spelling, "pin": pin})
+            assert r.status_code == 200, \
+                "{} with PIN {} was refused".format(spelling, pin)
+            assert r.json()["user"]["name"] == expected, \
+                "signed in as the wrong worker"
+
+    # And a wrong PIN still reaches nobody.
+    assert client.post("/api/auth/login",
+                       json={"phone": "0209998881", "pin": "9999"}
+                       ).status_code == 401
+
+
+def test_a_variant_set_cannot_reach_an_unrelated_number(db):
+    """variants() is used in an authentication filter, so it must not widen."""
+    from app import phones
+
+    for raw in ("0209998881", "+233209998881", "233209998881"):
+        assert phones.variants(raw) <= {
+            "0209998881", "+233209998881", "233209998881", "209998881", raw.strip()}
+    # A different handset shares nothing.
+    assert not (phones.variants("0209998881") & phones.variants("0209998882"))
+    # Junk does not produce a set that matches everything.
+    for junk in ("", "   ", None):
+        assert phones.variants(junk) == set()

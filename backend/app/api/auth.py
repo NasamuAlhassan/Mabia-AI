@@ -18,17 +18,23 @@ class LoginIn(BaseModel):
 
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    # Accept the number however it was typed; a worker signing in at 2am
-    # should not have to remember which of four spellings she enrolled with.
-    # Both forms. A number the migration could not normalise -- because doing
-    # so would have collided with another row -- is still stored as it was
-    # written, and looking only for the canonical form meant no spelling of her
-    # own number reached her account. She would have been locked out
-    # permanently, with the only trace a line on the server's boot log.
-    user = (db.query(User)
-              .filter(User.phone.in_(phones.variants(body.phone)))
-              .first())
-    if not user or not verify_pin(body.pin, user.pin_hash):
+    # Accept the number however it was typed. A worker signing in at 2am
+    # should not have to remember which of four spellings she enrolled with,
+    # and a row the startup migration could not rewrite -- because doing so
+    # would have collided with another -- keeps its original spelling forever.
+    #
+    # Every match is checked, not the first. Two rows can legitimately answer
+    # to one handset, which is precisely the collision this exists for, and
+    # taking .first() meant the second worker's PIN was tested against the
+    # first worker's hash and failed: the same permanent lockout, one layer
+    # down. This does not weaken anything. A caller still needs the PIN of the
+    # account she reaches, and she still only ever reaches her own.
+    candidates = (db.query(User)
+                    .filter(User.phone.in_(phones.variants(body.phone)))
+                    .all())
+    user = next((u for u in candidates if verify_pin(body.pin, u.pin_hash)),
+                None)
+    if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "That phone number and PIN do not match.")
     return {"token": create_token(user.id, user.role), "user": _me(user)}

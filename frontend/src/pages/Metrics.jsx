@@ -80,8 +80,10 @@ export default function Metrics() {
             <Row label="Contacted on schedule" value={pct(data.reach_rate)} />
             <Row label="Antenatal contacts completed" value={pct(data.contact_completion)} />
             <Row label="Taking iron and folic acid" value={pct(data.ifa_adherence)} />
-            <Row label="Meeting minimum dietary diversity"
-                 value={pct(data.minimum_dietary_diversity)} />
+            <Row label={`Women meeting MDD-W (of ${data.mdd_women_n ?? 0})`}
+                 value={pct(data.mdd_women)} />
+            <Row label={`Children 6–23m meeting MDD (of ${data.mdd_children_n ?? 0})`}
+                 value={pct(data.mdd_children)} />
           </tbody>
         </table>
         <p className="muted tiny" style={{ marginTop: 12 }}>

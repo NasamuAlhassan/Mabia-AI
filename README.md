@@ -25,7 +25,7 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 - **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 69 tests
+./scripts/test.sh    # 113 tests
 ```
 
 ## Make it call a real phone
@@ -132,7 +132,7 @@ A caregiver can also reach the platform at any time: she rings and hangs up, and
 
 **The AI recommends; it never decides.** Every classification carries structured reason codes rendered in the worker's language, every escalation passes a named human, and every case is closed by a person. The engine is deterministic and auditable — the event log is shaped so models can be trained later, rather than claiming prediction without data.
 
-**Speech is an enhancement layer, not a dependency.** The keypad path is complete and standalone. TTS and closed-vocabulary recognition for Dagbani, Kusaal, Frafra and Gonja ride on top, trained with narrowband augmentation to match telephone audio rather than studio audio. Recorded prompts drop into `backend/audio/<language>/` and are picked up automatically; anything missing falls back to spoken English so the flow is always testable.
+**Speech is an enhancement layer, not a dependency.** The keypad path is complete and standalone. TTS for Dagbani, Kusaal and Frafra rides on top, via Khaya where its quota allows and Meta's MMS locally where a model exists — which today is Kusaal and nothing else here. Gonja has neither, and was always going to need a human voice. Nothing has been trained or fine-tuned: narrowband augmentation to match 8 kHz telephone audio is the right next step and is not yet done. Recorded prompts drop into `backend/audio/<language>/` and are picked up automatically; anything missing falls back to spoken English so the flow is always testable.
 
 ---
 
@@ -160,7 +160,7 @@ backend/
     telephony/africastalking.py  |  telephony/simulator.py
     services.py        emergencies, dispatch, nurse cascade, no dead ends
     api/               routes, incl. the voice and USSD webhooks
-  tests/               39 tests
+  tests/               113 tests
   audio/<language>/    recorded prompts, served publicly
 frontend/src/pages/    Setup, Worklist, Patient, Enrol, Calls, Nutrition, …
 scripts/               dev.sh, test.sh

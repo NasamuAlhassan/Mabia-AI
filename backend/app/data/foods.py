@@ -61,7 +61,17 @@ DRY_MONTHS = [12, 1, 2, 3, 4]
 
 # Cost tiers, cheapest first. "free" means gathered, not bought.
 TIERS = ["free", "low", "medium", "high"]
-AFFORDABILITY_CEILING = {"low": ["free", "low"], "medium": ["free", "low", "medium"]}
+# Every tier a household at this level can reach. "high" must be listed
+# explicitly: while _affordable() failed open, an unrecognised value quietly
+# meant "everything", so the missing key was invisible -- and the moment the
+# filter was made to fail closed, a well-off household could suddenly afford
+# nothing but free food. A lookup table with a hole in it is only ever one
+# default away from being wrong in either direction.
+AFFORDABILITY_CEILING = {
+    "low": ["free", "low"],
+    "medium": ["free", "low", "medium"],
+    "high": ["free", "low", "medium", "high"],
+}
 
 YEAR = list(range(1, 13))
 
@@ -82,7 +92,7 @@ FOODS = [
           ["dark_leafy"], ["vita_fruit_veg"],
           "Stir a handful of dried baobab leaf powder into the soup. The tree is "
           "in the compound and the powder keeps all year.",
-          iron=True, local={"dagbani": "kuka", "gonja": "kuka"}),
+          iron=True, local={"hausa": "kuka"}),
     _food("moringa", "Moringa leaves", YEAR, "free", "gathered",
           ["dark_leafy"], ["vita_fruit_veg"],
           "Pick moringa leaves, dry them, and add two spoons to the porridge or "
@@ -107,7 +117,7 @@ FOODS = [
           ["nuts_seeds"], ["pulses_nuts_seeds"],
           "Add a spoon of groundnut paste to the porridge. It stores from harvest "
           "and adds energy the child needs to grow.",
-          local={"dagbani": "sinkaafa"}),
+          local={"dagbani": "sinkpam"}),
     _food("dawadawa", "Dawadawa", YEAR, "low", "stored",
           ["nuts_seeds"], ["pulses_nuts_seeds"],
           "Cook with dawadawa. It is rich in iron and it is already in most "
@@ -128,7 +138,7 @@ FOODS = [
           ["flesh"], ["flesh"],
           "Pound dried small fish and stir a spoon into the porridge. It is cheap "
           "and builds the blood.",
-          iron=True, local={"dagbani": "amane"}),
+          iron=True, local={"dagbani": "zahim kuɣili"}),
     _food("okra_dried", "Dried okra", YEAR, "low", "stored",
           ["other_veg"], ["other_fruit_veg"],
           "Dried okra keeps all year. Add it to the soup."),
@@ -144,10 +154,12 @@ FOODS = [
     _food("tom_brown", "Enriched Tom Brown", YEAR, "low", "stored",
           ["grains"], ["grains"],
           "Make Tom Brown with roasted maize, soybean and groundnut together — "
-          "not maize alone. Same porridge, far more in it.",
-          local={"dagbani": "tombrown"}),
+          "not maize alone. Same porridge, far more in it."),
+    # Shea butter is a fat. Fats and oils are not a group in either instrument,
+    # so it carries no group and can never inflate a diversity score. It is kept
+    # because the advice is sound: fat is what makes vitamin A absorbable.
     _food("shea_butter", "Shea butter", YEAR, "low", "stored",
-          ["other_veg"], ["other_fruit_veg"],
+          [], [],
           "A little shea butter in the food helps the body take up vitamin A."),
 
     # --- seasonal, grown --------------------------------------------------
@@ -212,8 +224,12 @@ FOODS_BY_KEY = {f["key"]: f for f in FOODS}
 # household sells or eats first, so they are the ones that stop being cheap.
 LEAN_PRICE_SHIFT = {
     "maize": "medium", "millet": "medium", "sorghum": "medium",
-    "cowpea": "medium", "bambara": "medium", "groundnut": "medium",
+    "cowpea": "medium", "bambara": "medium",
     "soybean": "medium", "yam": "medium",
+    # Groundnut deliberately absent: it is the staple households hold back
+    # rather than sell, and it is the lean-season fallback this whole engine is
+    # built around. Pricing it out in July contradicted the one worked example
+    # the documentation leads with.
     "eggs": "high", "fresh_fish": "high", "milk_fresh": "high",
     "milk_fermented": "high", "tomato": "high",
 }

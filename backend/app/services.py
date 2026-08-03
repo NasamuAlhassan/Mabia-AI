@@ -169,13 +169,16 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
     named = (db.query(CareCircleMember)
                .filter(CareCircleMember.patient_id == patient.id,
                        CareCircleMember.role == "driver").first())
-    if named and named.phone:
-        drivers.sort(key=lambda d: 0 if d.phone == named.phone else 1)
     if not drivers:
         drivers = db.query(Driver).filter(Driver.available.is_(True)).all()
 
+    # The preference has to live IN the sort key. A pre-sort followed by a
+    # second sorted() on different keys silently discarded it, so the man she
+    # named and trusts was ranked as a stranger by response rate.
+    named_phone = named.phone if named and named.phone else None
     vehicle_rank = {"ambulance": 0, "car": 1, "motorking": 2, "motorbike": 3}
     return sorted(drivers, key=lambda d: (
+        0 if named_phone and d.phone == named_phone else 1,
         0 if d.community == patient.community else 1,
         vehicle_rank.get(d.vehicle_type, 4),
         -d.response_rate,

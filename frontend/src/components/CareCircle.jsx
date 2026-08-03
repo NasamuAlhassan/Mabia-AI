@@ -8,10 +8,12 @@ import { get, put } from '../api'
 // being filled in. A missing decision-maker is not a blank field; it is a
 // specific way the referral fails.
 
+const BLANK = { name: '', phone: '', detail: '', confirmed: false }
+
 export default function CareCircle({ patientId }) {
   const [circle, setCircle] = useState(null)
   const [editing, setEditing] = useState(null)
-  const [draft, setDraft] = useState({ name: '', phone: '', detail: '' })
+  const [draft, setDraft] = useState(BLANK)
   const [error, setError] = useState('')
 
   const load = () => get(`/api/circle/${patientId}`).then(setCircle).catch(() => {})
@@ -20,10 +22,9 @@ export default function CareCircle({ patientId }) {
   async function save(role) {
     setError('')
     try {
-      setCircle(await put(`/api/circle/${patientId}`, { role, ...draft,
-                                                        confirmed: true }))
+      setCircle(await put(`/api/circle/${patientId}`, { role, ...draft }))
       setEditing(null)
-      setDraft({ name: '', phone: '', detail: '' })
+      setDraft(BLANK)
     } catch (e) { setError(e.message) }
   }
 
@@ -49,6 +50,13 @@ export default function CareCircle({ patientId }) {
         </p>
       )}
 
+      {circle.unreachable?.length > 0 && (
+        <p className="muted tiny">
+          No phone number for {circle.unreachable.join(' or ')}. A name we
+          cannot ring at two in the morning is not a plan.
+        </p>
+      )}
+
       <div className="circle-grid">
         {circle.members.map(m => (
           <div className={`circle-member ${m.name ? '' : 'missing'}`} key={m.role}>
@@ -66,6 +74,12 @@ export default function CareCircle({ patientId }) {
                        placeholder={m.role === 'payer' ? 'NHIS number' : 'Relationship'}
                        value={draft.detail}
                        onChange={e => setDraft({ ...draft, detail: e.target.value })} />
+                <label className="tiny check">
+                  <input type="checkbox" checked={draft.confirmed}
+                         onChange={e => setDraft({ ...draft,
+                                                   confirmed: e.target.checked })} />
+                  They have agreed to this
+                </label>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="primary small" onClick={() => save(m.role)}
                           disabled={!draft.name.trim()}>Save</button>
@@ -76,7 +90,12 @@ export default function CareCircle({ patientId }) {
               </div>
             ) : m.name ? (
               <>
-                <div className="who">{m.name}</div>
+                <div className="who">
+                  {m.name}
+                  {m.confirmed
+                    ? <span className="tick" title="Has agreed"> ✓</span>
+                    : <span className="muted tiny"> · not yet asked</span>}
+                </div>
                 {m.detail && <div className="muted tiny">{m.detail}</div>}
                 {m.phone && (
                   <div className="tiny"><a href={`tel:${m.phone}`}>{m.phone}</a></div>
@@ -85,7 +104,8 @@ export default function CareCircle({ patientId }) {
                 <button className="small quiet" style={{ marginTop: 8 }}
                         onClick={() => {
                           setDraft({ name: m.name, phone: m.phone || '',
-                                     detail: m.detail || '' })
+                                     detail: m.detail || '',
+                                     confirmed: !!m.confirmed })
                           setEditing(m.role)
                         }}>Change</button>
               </>
@@ -95,7 +115,7 @@ export default function CareCircle({ patientId }) {
                 <div className="delay">{m.delay}</div>
                 <button className="small" style={{ marginTop: 8 }}
                         onClick={() => {
-                          setDraft({ name: '', phone: '', detail: '' })
+                          setDraft(BLANK)
                           setEditing(m.role)
                         }}>Add</button>
               </>

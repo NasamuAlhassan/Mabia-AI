@@ -106,7 +106,16 @@ def _available(food, month: int, region: str) -> bool:
 
 
 def _affordable(food, affordability: str, season: str) -> bool:
-    return tier_for(food, season) in AFFORDABILITY_CEILING.get(affordability, TIERS)
+    """Fails closed. An unknown affordability means the tightest budget.
+
+    The previous default fell back to every tier, so a null or misspelt value
+    silently meant "can afford anything" -- in the one filter whose entire
+    purpose is to not recommend food a household cannot buy.
+    """
+    ceiling = AFFORDABILITY_CEILING.get(affordability)
+    if ceiling is None:
+        ceiling = AFFORDABILITY_CEILING["low"]
+    return tier_for(food, season) in ceiling
 
 
 # Not every gap is worth the same. A household short of flesh foods, dark
@@ -185,6 +194,22 @@ def recommend(
             out.append((_score_food(food, season, anaemia_focus), food))
         out.sort(key=lambda c: (c[0], c[1]["key"]))
         return out
+
+    # Breast milk is a food group with no food in the table, because it is not
+    # something a household buys, gathers or grows. That meant the gap search
+    # skipped straight past it -- and a child who had stopped breastfeeding but
+    # ate five other groups was congratulated on a varied diet. WHO recommends
+    # breastfeeding to two years and beyond; this is the single most important
+    # thing on the child questionnaire and it was the one gap the engine could
+    # not speak about.
+    if "breastmilk" in recall.missing:
+        return Recommendation(
+            None, "breastmilk", season,
+            "The child did not take breast milk yesterday. If she is still able "
+            "to breastfeed, encourage her to keep going — it is the best food "
+            "there is, and it is free.",
+            "breast milk missing at {} months; no food replaces it".format(
+                "6-23"))
 
     ordered = sorted(recall.missing, key=lambda g: (-GROUP_PRIORITY.get(g, 3), g))
     # Groups already covered by recent advice go to the back of the queue.

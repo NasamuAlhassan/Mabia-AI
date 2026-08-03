@@ -95,7 +95,11 @@ export default function Voice() {
           <div className="row">
             <h2 style={{ margin: 0 }}>{LANGUAGES.find(l => l.key === language).label}</h2>
             <span className="spacer" />
-            <span className={`badge ${here.spoken_coverage > 0 ? 'green' : 'amber'}`}>
+            {/* Green at 2.5% told the room this language was ready when
+                fifty-odd prompts of it did not exist. Green means most of it
+                is there; amber means it is being worked on; red means the
+                call would be in English. */}
+            <span className={`badge ${coverageTone(here.spoken_coverage)}`}>
               {here.spoken_coverage}% spoken
             </span>
           </div>
@@ -304,3 +308,5 @@ function PhraseRow({ phrase, onChange }) {
     </div>
   )
 }
+
+const coverageTone = (p) => (p >= 90 ? 'green' : p >= 40 ? 'amber' : 'red')

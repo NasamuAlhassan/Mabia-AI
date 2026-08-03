@@ -22,8 +22,8 @@ from app import events as ev  # noqa: E402
 from app import services  # noqa: E402
 from app.db import Base, SessionLocal, engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import (CallSession, Contact, Dispatch, Emergency, Event,  # noqa: E402
-                        Message, Patient, PatientState)
+from app.models import (CallSession, Contact, Dispatch, Driver, Emergency,  # noqa: E402
+                        Event, Message, Patient, PatientState)
 from app.telephony import service as tel  # noqa: E402
 
 
@@ -1033,3 +1033,161 @@ def test_a_composed_turn_is_still_in_her_language(db):
     assert "Some runtime message." in composed
     assert any(ch in composed for ch in "ɛɣŋʒɔ"), \
         "the catalogue part fell back to English"
+
+
+# --------------------------------------------- nutrition truth and affordability
+
+
+def test_the_local_word_for_groundnut_is_not_the_word_for_rice(db):
+    """sinkaafa is rice. The engine's most-recommended food was mislabelled."""
+    from app.data.foods import FOODS_BY_KEY
+
+    assert FOODS_BY_KEY["groundnut"]["local_names"]["dagbani"] == "sinkpam"
+    for food in FOODS_BY_KEY.values():
+        assert food["local_names"].get("dagbani") != "sinkaafa", \
+            "{} is labelled with the Dagbani word for rice".format(food["key"])
+
+
+def test_fat_is_not_counted_as_a_vegetable(db):
+    """Shea butter carried other_veg, crediting a group she had not eaten.
+
+    Fats and oils are deliberately excluded from both MDD-W and the child
+    indicator. Counting one inflated the score the whole product reports.
+    """
+    from app.data.foods import FOODS_BY_KEY
+
+    shea = FOODS_BY_KEY["shea_butter"]
+    assert shea["w_groups"] == [] and shea["c_groups"] == []
+
+
+def test_the_lean_season_example_the_readme_leads_with_actually_works(db):
+    """Groundnut priced to medium in the lean season -- unaffordable in July."""
+    from app.data.foods import FOODS_BY_KEY, tier_for
+
+    assert tier_for(FOODS_BY_KEY["groundnut"], "lean") == "low"
+
+
+def test_an_unknown_budget_is_treated_as_the_tightest_one(db):
+    """The affordability filter failed open, defeating its only purpose."""
+    from app.data.foods import AFFORDABILITY_CEILING, FOODS_BY_KEY
+    from app.engines.nutrition import _affordable
+
+    goat = FOODS_BY_KEY["goat"]
+    # "high" must be a real key, not something that used to work by falling
+    # through to "allow everything".
+    assert "high" in AFFORDABILITY_CEILING
+    assert _affordable(goat, "high", "dry") is True
+    for bad in (None, "", "unknown", "LOW", "medium-ish"):
+        assert _affordable(goat, bad, "dry") is False, \
+            "affordability={!r} let an expensive food through".format(bad)
+
+
+def test_a_child_who_stopped_breastfeeding_is_not_congratulated(db):
+    """No food carries the breastmilk group, so the gap was skipped entirely."""
+    from app.engines.nutrition import MDD_CHILD, Recall, recommend
+
+    # Five of eight groups, but breast milk is not one of them.
+    recall = Recall(MDD_CHILD, ["grains", "pulses_nuts_seeds", "dairy",
+                                "flesh", "eggs"])
+    assert recall.meets_minimum is True
+    rec = recommend(recall, month=7)
+    assert rec.group == "breastmilk"
+    assert "breast milk" in rec.message.lower()
+    assert "varied enough" not in rec.message
+
+
+# --------------------------------------------------------- the two instruments
+
+
+def test_the_two_diversity_scores_are_never_pooled(client, db, auth):
+    """The screen said they are never combined, twelve lines under the pooling.
+
+    Both minimums are five, which is what made this look harmless -- but the
+    denominators are ten and eight and the populations are women and infants.
+    """
+    body = client.get("/api/metrics", headers=auth).json()
+    assert "minimum_dietary_diversity" not in body
+    assert "mdd_women" in body and "mdd_children" in body
+    assert body["mdd_women_n"] + body["mdd_children_n"] == db.query(
+        PatientState).filter(PatientState.mdd_score.isnot(None)).count()
+
+
+# ------------------------------------------------------------- the care circle
+
+
+def test_the_driver_she_named_is_rung_first(db):
+    """A pre-sort then a second sorted() on other keys discarded the preference."""
+    from app.models import CareCircleMember
+    from app.services import rank_drivers
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    # A stranger with a perfect record, in her community, in a car.
+    star = Driver(name="Star Stranger", phone="+233240000941",
+                  community=patient.community, vehicle_type="car",
+                  available=True, accepted_count=20, offered_count=20)
+    hers = Driver(name="Her Man", phone="+233240000942",
+                  community=patient.community, vehicle_type="motorbike",
+                  available=True, accepted_count=0, offered_count=4)
+    db.add_all([star, hers])
+    # Amina's circle is seeded complete, so name over the existing entry.
+    row = (db.query(CareCircleMember)
+             .filter(CareCircleMember.patient_id == patient.id,
+                     CareCircleMember.role == "driver").first())
+    if row is None:
+        row = CareCircleMember(patient_id=patient.id, role="driver")
+        db.add(row)
+    row.name, row.phone = "Her Man", "+233240000942"
+    db.flush()
+
+    order = rank_drivers(db, patient)
+    assert order[0].phone == "+233240000942", \
+        "ranked her named driver below a stranger: {}".format(
+            [d.name for d in order[:3]])
+
+
+def test_naming_a_driver_puts_him_in_the_roster_that_gets_dialled(client, db, auth):
+    """rank_drivers reads the Driver table; the circle wrote somewhere else."""
+    from app.services import rank_drivers
+
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    before = db.query(Driver).filter(Driver.phone == "+233240000955").count()
+    assert before == 0
+
+    r = client.put("/api/circle/{}".format(patient.id), headers=auth, json={
+        "role": "driver", "name": "Yakubu", "phone": "+233240000955",
+        "detail": "motorking"})
+    assert r.status_code == 200
+
+    db.expire_all()
+    created = db.query(Driver).filter(Driver.phone == "+233240000955").first()
+    assert created is not None, "named driver never entered the roster"
+    assert created.community == patient.community
+    assert rank_drivers(db, patient)[0].phone == "+233240000955"
+
+
+def test_a_care_circle_of_names_with_no_numbers_is_not_complete(client, db, auth):
+    """complete went true with four names and no way to ring any of them."""
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    roles = ["decision_maker", "driver", "payer", "emergency"]
+    for role in roles:
+        body = client.put("/api/circle/{}".format(patient.id), headers=auth,
+                          json={"role": role, "name": "Someone"}).json()
+    assert body["missing"] == []
+    assert body["complete"] is False, "complete with no phone numbers at all"
+    assert body["unreachable"]
+
+    for role in ("decision_maker", "emergency"):
+        body = client.put("/api/circle/{}".format(patient.id), headers=auth,
+                          json={"role": role, "name": "Someone",
+                                "phone": "+23324000096" + str(roles.index(role))}
+                          ).json()
+    assert body["complete"] is True
+
+
+def test_saving_a_name_does_not_claim_the_person_agreed(client, db, auth):
+    """The form hardcoded confirmed: true, so 'agreed' meant 'typed'."""
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    body = client.put("/api/circle/{}".format(patient.id), headers=auth,
+                      json={"role": "payer", "name": "Uncle"}).json()
+    payer = [m for m in body["members"] if m["role"] == "payer"][0]
+    assert payer["confirmed"] is False

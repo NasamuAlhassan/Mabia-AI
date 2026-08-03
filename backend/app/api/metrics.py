@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..data.foods import CHILD_MINIMUM, MDDW_MINIMUM
 from ..models import (Contact, Dispatch, Emergency, Event, Patient,
                       PatientState, User)
 from ..security import current_user
@@ -32,8 +33,17 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
     ifa_known = db.query(PatientState).filter(
         PatientState.ifa_adherent.isnot(None)).count()
 
+    # Split by instrument, because the screen below this says they are never
+    # combined and this code was combining them. MDD-W is ten groups for a
+    # woman; the child indicator is eight and includes breast milk. The
+    # threshold happens to be five in both, which is exactly what made pooling
+    # them look harmless -- the denominators and the populations differ, so the
+    # pooled number is a percentage of nothing in particular.
     mdd_rows = db.query(PatientState).filter(PatientState.mdd_score.isnot(None)).all()
-    mdd_ok = sum(1 for s in mdd_rows if (s.mdd_score or 0) >= 5)
+    women = [s for s in mdd_rows if s.mdd_instrument == "mdd_w"]
+    children = [s for s in mdd_rows if s.mdd_instrument == "mdd_child"]
+    women_ok = sum(1 for s in women if (s.mdd_score or 0) >= MDDW_MINIMUM)
+    children_ok = sum(1 for s in children if (s.mdd_score or 0) >= CHILD_MINIMUM)
 
     gaps_closed, gaps_measured = _gap_closure(db)
 
@@ -64,7 +74,10 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
         "reach_rate": _pct(reached, patients),
         "contact_completion": _pct(done, contacts),
         "ifa_adherence": _pct(ifa_yes, ifa_known),
-        "minimum_dietary_diversity": _pct(mdd_ok, len(mdd_rows)),
+        "mdd_women": _pct(women_ok, len(women)),
+        "mdd_women_n": len(women),
+        "mdd_children": _pct(children_ok, len(children)),
+        "mdd_children_n": len(children),
         "nutrition_gaps_closed": _pct(gaps_closed, gaps_measured),
         "referral_closure_rate": _pct(closed, emergencies),
         "care_received_rate": _pct(care_received, emergencies),

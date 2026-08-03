@@ -146,6 +146,31 @@ def seed(db: Session) -> None:
                   occurred_at=day - dt.timedelta(days=offset),
                   payload={"outcome": "unreachable"})
 
+    # Amina's circle is complete; the others are deliberately partial, because
+    # a demo where every record is perfect teaches a judge nothing about what
+    # the product does when it is not.
+    from .models import CareCircleMember
+    db.add_all([
+        CareCircleMember(patient_id=amina.id, role="decision_maker",
+                         name="Mahamadu Fuseini", phone="+233240000101",
+                         detail="Husband", confirmed=True),
+        CareCircleMember(patient_id=amina.id, role="driver",
+                         name="Iddrisu Mohammed", phone="+233200000021",
+                         detail="Motorking", confirmed=True),
+        CareCircleMember(patient_id=amina.id, role="payer",
+                         name="NHIS", detail="NHIS 1234567890", confirmed=True),
+        CareCircleMember(patient_id=amina.id, role="emergency",
+                         name="Salamatu Fuseini", phone="+233240000102",
+                         detail="Sister", confirmed=True),
+        CareCircleMember(patient_id=zeinab.id, role="decision_maker",
+                         name="Abu Mahama", phone="+233240000103",
+                         detail="Husband", confirmed=False),
+        CareCircleMember(patient_id=hawa.id, role="emergency",
+                         name="Fati Sulemana", phone="+233240000104",
+                         detail="Mother", confirmed=True),
+    ])
+    db.flush()
+
     for patient in created:
         ev.refresh_state(db, patient.id)
 

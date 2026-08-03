@@ -641,3 +641,60 @@ def test_lines_too_long_to_synthesise_are_reported_not_hidden(db):
     assert "too_long" in status
     for row in status["too_long"]:
         assert row["chars"] > pipeline.MAX_SPOKEN_CHARS
+
+
+# ---------------------------------------------------------- care circle
+
+
+def test_an_emergency_also_reaches_the_decision_maker(db, client, auth):
+    """Alerting only the health worker assumes she decides alone. Often she does not."""
+    from app.models import CareCircleMember, Message
+
+    # A patient with no emergency already open: an escalation on an existing
+    # one deliberately does NOT re-alert the family. A husband receiving a
+    # fresh alarming message every time a symptom is updated stops reading them.
+    patient = Patient(name="Circle Test", phone="+233240000802",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    db.add(CareCircleMember(patient_id=patient.id, role="decision_maker",
+                            name="Her husband", phone="+233240000801"))
+    db.flush()
+
+    before = db.query(Message).filter(Message.kind == "circle_alert").count()
+    services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.commit()
+    after = db.query(Message).filter(Message.kind == "circle_alert").count()
+    assert after > before, "the person who decides was never told"
+
+    note = (db.query(Message)
+              .filter(Message.kind == "circle_alert")
+              .order_by(Message.created_at.desc()).first())
+    # Say what to do, not what is wrong: a third party gets no diagnosis.
+    assert "health centre" in note.body
+    for clinical in ("bleeding", "convulsions", "haemorrhage"):
+        assert clinical not in note.body.lower()
+
+
+def test_a_driver_she_already_agreed_with_is_called_first(db):
+    from app.models import CareCircleMember, Driver
+
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    others = db.query(Driver).filter(Driver.community == patient.community).all()
+    assert len(others) >= 2
+    preferred = others[-1]        # deliberately not the top-ranked one
+    db.add(CareCircleMember(patient_id=patient.id, role="driver",
+                            name=preferred.name, phone=preferred.phone))
+    db.flush()
+    ranked = services.rank_drivers(db, patient)
+    assert ranked[0].phone == preferred.phone, \
+        "the driver she had already arranged was not called first"
+
+
+def test_the_circle_reports_what_is_still_missing(db, client, auth):
+    patient = db.query(Patient).filter(Patient.name == "Hawa Sulemana").first()
+    body = client.get("/api/circle/{}".format(patient.id), headers=auth).json()
+    assert len(body["members"]) == 4
+    assert body["missing"], "a partly-filled circle claimed to be complete"
+    # Each role explains which delay it addresses, so the form teaches.
+    assert all(m["delay"] for m in body["members"])

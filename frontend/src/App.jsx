@@ -79,13 +79,70 @@ function Shell({ children }) {
 
   const stale = !online || (lastSync && Date.now() - lastSync > 2 * 3600 * 1000)
 
+  const me = JSON.parse(localStorage.getItem('mabia.user') || 'null')
+  const initials = (me?.name || '')
+    .split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+
   return (
+    <div className="shell">
+      {/* Desktop only. On a phone these same destinations are the bottom bar,
+          because a fixed sidebar on a 390px screen is a drawer nobody opens. */}
+      <aside className="rail">
+        <div className="wordmark">
+          <span className="glyphmark" aria-hidden="true">M</span>
+          <span>
+            <span className="name">Mabia AI</span>
+            <span className="sub">Care Network</span>
+          </span>
+        </div>
+        <div className="kicker">CHPS worker system</div>
+        <nav aria-label="Sections">
+          {TABS.map(t => (
+            <NavLink key={t.to} to={t.to}
+                     className={({ isActive }) => isActive ? 'active' : ''}>
+              <span className="glyph" aria-hidden="true">{t.glyph}</span>
+              <span>{t.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="foot">
+          <div className="status-card">
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>System status</div>
+            <div>
+              <span className={`dot ${online ? 'on' : 'off'}`} aria-hidden="true" />
+              {online ? 'Online' : 'Offline'}
+            </div>
+            <div style={{ opacity: .75, marginTop: 2 }}>
+              Last sync: {ago(lastSync)}
+            </div>
+            {pending > 0 && (
+              <div style={{ opacity: .75 }}>{pending} waiting to send</div>
+            )}
+          </div>
+        </div>
+      </aside>
+
     <div className="app">
       <header className="topbar">
         <span className="brand">
           <span className="mark" aria-hidden="true" />Mabia
         </span>
         <span className="spacer" />
+        {me && (
+          <span className="row" style={{ gap: 8, marginRight: 4 }}>
+            <span className="avatar" aria-hidden="true"
+                  style={{ width: 30, height: 30, flexBasis: 30, fontSize: '.8rem' }}>
+              {initials || '·'}
+            </span>
+            <span style={{ fontSize: '.85rem', lineHeight: 1.2 }}>
+              {me.name?.split(' ')[0]}
+              <span style={{ display: 'block', opacity: .7, fontSize: '.72rem' }}>
+                {me.role === 'nutrition_officer' ? 'Nutrition officer'
+                  : me.role === 'nurse' ? 'Nurse' : 'CHPS worker'}
+              </span>
+            </span>
+          </span>
+        )}
         <button onClick={() => setSun(s => !s)} aria-pressed={sun}
                 title="High-contrast mode for bright sunlight">
           {sun ? 'Sun on' : 'Sun'}
@@ -119,6 +176,7 @@ function Shell({ children }) {
           </NavLink>
         ))}
       </nav>
+    </div>
     </div>
   )
 }

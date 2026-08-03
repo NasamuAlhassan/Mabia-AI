@@ -17,3 +17,8 @@ coverage/
 # English -- so they ship.
 backend/audio/english/*.wav
 backend/audio/english/*.mp3
+
+# Design references supplied by the team. Not ours to redistribute, and not
+# part of the build.
+PHOTO-*.jpg
+stitch_mabia_ai_healthcare_coordination_platform/

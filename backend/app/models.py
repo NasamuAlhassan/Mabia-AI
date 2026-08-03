@@ -357,6 +357,44 @@ class Dispatch(Base):
 # --------------------------------------------------------------- settings
 
 
+class CareCircleMember(Base):
+    """The people around her who actually determine whether she reaches care.
+
+    From the team's own design, and it closes a real gap. Three of the four
+    roles map directly onto the Three Delays, which is why this is more than a
+    contact list:
+
+      decision_maker  Delay 1. In much of Northern Ghana the woman does not
+                      decide alone whether to seek care; a husband or a
+                      mother-in-law does. A platform that only ever calls her is
+                      talking to someone who may not hold the decision.
+      driver          Delay 2. Her own community's transport, known in advance
+                      rather than found at midnight.
+      payer           The money barrier, which is not one of the classic three
+                      delays and stops just as many journeys. Usually an NHIS
+                      number, sometimes a person.
+      emergency       Whoever is called when she cannot be reached at all.
+
+    Her own phone is often not hers -- it is frequently the husband's -- so
+    recording who else can be reached, by name, is the difference between an
+    alert landing and an alert evaporating.
+    """
+    __tablename__ = "care_circle"
+
+    id = Column(String, primary_key=True, default=uuid7)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False,
+                        index=True)
+    role = Column(String, nullable=False)   # decision_maker|driver|payer|emergency
+    name = Column(String, nullable=False)
+    phone = Column(String)
+    detail = Column(String)                 # NHIS number, relationship, vehicle
+    confirmed = Column(Boolean, default=False)
+    confirmed_at = Column(DateTime)
+    created_at = Column(DateTime, default=now)
+
+    __table_args__ = (UniqueConstraint("patient_id", "role"),)
+
+
 class Phrase(Base):
     """One line of the call script, in one language.
 

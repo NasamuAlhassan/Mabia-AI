@@ -1,4 +1,16 @@
-/* Mabia AI — designed for a thumb, in bright sun, on a cheap phone.
+/* Mabia AI — a CHPS worker's console.
+ *
+ * Follows the team's own mockups: a deep forest rail carrying the identity, a
+ * quiet white working surface, and risk stated in a pill you can read across a
+ * room. Green because it reads as health and care in Ghana, and because the
+ * default of every health-tech product since 2015 is a blue this deliberately
+ * is not.
+ *
+ * Deliberately NOT following the Material token dump that shipped alongside
+ * those mockups — Inter everywhere over a #00288e blue is the generic look the
+ * screenshots themselves improved on.
+ *
+ * Originally written for a thumb in bright sun, and that still holds.
  *
  * Three constraints drove every decision here, and none of them are aesthetic:
  *
@@ -23,19 +35,30 @@
 
 :root {
   /* Ground and ink */
-  --bg:           #FBF7F0;   /* harmattan bone, not cool grey */
+  --bg:           #F6F8F7;   /* a green-shifted grey, quieter than the rail */
   --card:         #FFFFFF;   /* maximum luminance, for sun */
   --ink:          #1A1410;   /* warm near-black — 18.2:1 on white */
   --ink-soft:     #4A3F35;   /* 10.2:1 — readable, not decorative */
   --line:         #DCCFBC;   /* hairlines only */
   --line-strong:  #7E6C53;   /* 5.05:1 — real borders, outlined buttons */
 
-  /* Chrome and identity */
-  --indigo-900:   #16233F;
-  --indigo-700:   #22355E;
-  --ochre:        #B5730B;   /* fills, edge bands, the mark */
-  --ochre-ink:    #8A5A00;   /* ochre as text — 5.9:1 on white */
+  /* Chrome and identity — the forest rail from the team's mockups */
+  --forest-900:   #0B3D2C;   /* the rail — 13.9:1 with white */
+  --forest-800:   #124A36;
+  --forest-700:   #146B4A;   /* primary actions */
+  --forest-600:   #1B7F58;
+  --forest-tint:  #E7F3ED;
+  --forest-ink:   #0E5138;   /* forest as text — 7.4:1 on white */
+
+  /* Kept as the secondary accent: warmth against all that green, and the
+     edge-band language that carries status down the left of a row. */
+  --ochre:        #B5730B;
+  --ochre-ink:    #8A5A00;
   --ochre-tint:   #FDF1D8;
+
+  /* Aliases so existing components keep working during the migration. */
+  --indigo-900:   var(--forest-900);
+  --indigo-700:   var(--forest-700);
 
   /* Alarm — used nowhere else */
   --emergency:      #A5121C;
@@ -58,6 +81,8 @@
 :root[data-sun="on"] {
   --bg: #FFFFFF; --card: #FFFFFF; --ink: #000000; --ink-soft: #1A1A1A;
   --line: #000000; --line-strong: #000000;
+  --forest-900: #000000; --forest-800: #000000; --forest-700: #000000;
+  --forest-600: #000000; --forest-tint: #FFFFFF; --forest-ink: #003323;
   --indigo-900: #000000; --indigo-700: #000000;
   --ochre: #7A4E00; --ochre-ink: #5C3A00; --ochre-tint: #FFFFFF;
   --emergency: #8A0000; --emergency-tint: #FFFFFF;
@@ -419,3 +444,118 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
 .count.amber .n { color: var(--ochre-ink); }
 
 .list { display: flex; flex-direction: column; gap: var(--s2); }
+
+/* ------------------------------------------------------- the forest rail */
+
+/* Desktop gets a persistent rail, as in the team's mockups. A phone does not:
+ * a fixed sidebar on a 390px screen is a drawer nobody opens, so below the
+ * breakpoint the same destinations live in the bottom bar where a thumb is. */
+
+.shell { display: flex; min-height: 100%; }
+
+.rail {
+  display: none;
+  width: 232px; flex: 0 0 232px;
+  background: var(--forest-900); color: #fff;
+  flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+}
+.rail .wordmark {
+  padding: var(--s5) var(--s4) var(--s3);
+  display: flex; align-items: center; gap: var(--s3);
+}
+.rail .wordmark .glyphmark {
+  width: 34px; height: 34px; flex: 0 0 34px; border-radius: 7px;
+  background: #fff; color: var(--forest-900);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 1.05rem;
+}
+.rail .wordmark .name { font-weight: 700; font-size: 1.05rem; line-height: 1.15; }
+.rail .wordmark .sub { font-size: .8rem; opacity: .72; }
+.rail .kicker {
+  padding: 0 var(--s4) var(--s4);
+  font-size: .68rem; letter-spacing: .12em; text-transform: uppercase;
+  opacity: .6; font-weight: 700;
+}
+.rail nav { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--s2); }
+.rail nav a {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3); border-radius: var(--radius);
+  color: rgba(255,255,255,.82); text-decoration: none; font-weight: 500;
+  min-height: 46px; font-size: .96rem;
+}
+.rail nav a:hover { background: rgba(255,255,255,.07); color: #fff; }
+.rail nav a.active { background: var(--forest-700); color: #fff; font-weight: 700; }
+.rail nav a .glyph { font-size: 1.05rem; width: 20px; text-align: center; }
+.rail .foot { margin-top: auto; padding: var(--s4); }
+.rail .status-card {
+  background: rgba(255,255,255,.08); border-radius: var(--radius);
+  padding: var(--s3); font-size: .82rem;
+}
+.rail .status-card .dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  margin-right: 6px;
+}
+.rail .status-card .dot.on { background: #4ADE80; }
+.rail .status-card .dot.off { background: #FCA5A5; }
+
+@media (min-width: 900px) {
+  .rail { display: flex; }
+  .tabbar { display: none; }
+  .main { padding: var(--s5) var(--s5) var(--s6); max-width: 1120px; }
+  .topbar { padding-left: var(--s5); padding-right: var(--s5); }
+}
+
+/* --------------------------------------------------- numbered sections */
+
+/* Straight from the mockups, and useful beyond looks: in a three-minute pitch
+ * you can say "look at two, then three" and everyone finds it. */
+.section-head {
+  display: flex; align-items: center; gap: var(--s2);
+  margin: var(--s5) 0 var(--s3);
+  font-size: .82rem; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.section-head .num {
+  width: 22px; height: 22px; flex: 0 0 22px; border-radius: 5px;
+  background: var(--forest-tint); color: var(--forest-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .78rem; letter-spacing: 0;
+}
+.section-head.alarm { color: var(--emergency); }
+.section-head.alarm .num { background: var(--emergency-tint); color: var(--emergency); }
+.section-head .count {
+  background: var(--emergency); color: #fff; border-radius: 999px;
+  padding: 1px 8px; font-size: .74rem; letter-spacing: 0;
+}
+
+/* ------------------------------------------------------------- avatars */
+
+.avatar {
+  width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%;
+  background: var(--forest-tint); color: var(--forest-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 1rem; letter-spacing: .02em;
+}
+.avatar.lg { width: 60px; height: 60px; flex-basis: 60px; font-size: 1.3rem; }
+.avatar.alarm { background: var(--emergency-tint); color: var(--emergency); }
+
+/* ---------------------------------------------------------- care circle */
+
+.circle-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--s3);
+}
+.circle-member {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--s3); background: var(--card);
+}
+.circle-member .role {
+  font-size: .76rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-soft); font-weight: 700; margin-bottom: var(--s1);
+}
+.circle-member .who { font-weight: 700; }
+.circle-member.missing { border-style: dashed; background: transparent; }
+.circle-member .delay {
+  font-size: .74rem; color: var(--ochre-ink); margin-top: var(--s1);
+}

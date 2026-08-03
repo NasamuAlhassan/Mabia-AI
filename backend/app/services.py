@@ -68,13 +68,52 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
               payload={"emergency_id": emergency.id, "reasons": reason_codes,
                        "source": source})
 
+    reason_text = labels_for(reason_codes) or "danger signs"
     cho = db.get(User, patient.assigned_cho_id) if patient.assigned_cho_id else None
     if cho:
-        reason_text = labels_for(reason_codes) or "danger signs"
         body = "RED: {}, {}. {}. Open Mabia to confirm.".format(
             patient.name, patient.community, reason_text)
         tel.send_sms(db, cho.phone, body, kind="red_alert", patient_id=patient.id)
+
+    alert_care_circle(db, patient, reason_text)
     return emergency
+
+
+def alert_care_circle(db: Session, patient: Patient, reason_text: str) -> int:
+    """Tell the people who actually determine whether she leaves the compound.
+
+    Alerting only the health worker assumes the woman decides for herself and
+    that her phone is hers. In much of Northern Ghana neither is reliably true:
+    a husband or a mother-in-law often holds the decision, and the handset is
+    frequently his. A message that reaches the CHO and nobody else can still end
+    with her sitting at home.
+
+    The decision-maker is told plainly and without diagnosis -- that is not ours
+    to give over SMS to a third party -- and the message says what to do rather
+    than what is wrong.
+
+    Called once, when the emergency opens. A later worsening re-alerts the
+    health worker but deliberately not the family: a husband who receives a
+    fresh alarming message every time a symptom is updated stops reading them,
+    and the one that matters arrives among the ones that did not.
+    """
+    from .models import CareCircleMember
+
+    members = (db.query(CareCircleMember)
+                 .filter(CareCircleMember.patient_id == patient.id,
+                         CareCircleMember.role.in_(["decision_maker", "emergency"]))
+                 .all())
+    sent = 0
+    for member in members:
+        if not member.phone:
+            continue
+        tel.send_sms(
+            db, member.phone,
+            "Mabia: {} needs to go to the health centre now. A health worker "
+            "has been told and transport is being arranged.".format(patient.name),
+            kind="circle_alert", patient_id=patient.id)
+        sent += 1
+    return sent
 
 
 def validate_emergency(db: Session, emergency: Emergency, user: User) -> Emergency:
@@ -119,10 +158,19 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
     on, and pretending otherwise would be a demo that cannot survive contact
     with a real road. The community is how dispatch actually happens.
     """
+    from .models import CareCircleMember
+
     drivers = (db.query(Driver)
                  .filter(Driver.community == patient.community,
                          Driver.available.is_(True))
                  .all())
+
+    # A driver she has already agreed with beats the best-ranked stranger.
+    named = (db.query(CareCircleMember)
+               .filter(CareCircleMember.patient_id == patient.id,
+                       CareCircleMember.role == "driver").first())
+    if named and named.phone:
+        drivers.sort(key=lambda d: 0 if d.phone == named.phone else 1)
     if not drivers:
         drivers = db.query(Driver).filter(Driver.available.is_(True)).all()
 

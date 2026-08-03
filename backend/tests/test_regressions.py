@@ -2489,3 +2489,76 @@ def test_affordability_still_refuses_a_value_the_engine_cannot_use(client, db, a
         "name": "Typo Household", "phone": "+233240000861", "community": "Kpale",
         "region": "Northern", "consent": True, "affordability": "Medium"})
     assert r.status_code == 422
+
+
+def test_the_startup_migration_does_not_assume_sqlite(tmp_path):
+    """rowid is SQLite-only, and this runs at startup.
+
+    The moment the Postgres block in render.yaml is uncommented -- which the
+    file explicitly invites -- the service would not have booted at all.
+    """
+    import io
+    import inspect as _inspect
+    import tokenize
+    from app import migrate
+
+    # Executable code only. The comment explaining why rowid is wrong is
+    # allowed to say the word; the SQL is not.
+    source = _inspect.getsource(migrate)
+    code = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT, tokenize.NL):
+            continue
+        if token.type == tokenize.STRING and token.line.strip().startswith('"""'):
+            continue          # a docstring
+        code.append(token.string)
+    assert "rowid" not in " ".join(code).lower(), \
+        "the migration addresses rows by a SQLite-only column"
+
+
+def test_a_duplicated_number_does_not_stop_the_service_booting(tmp_path):
+    """User.phone is unique, so two legacy spellings of one handset collide
+    the moment they are normalised -- at startup, before anything serves."""
+    from sqlalchemy import create_engine, text
+    from app.db import Base
+    from app.migrate import add_missing_columns
+
+    engine = create_engine("sqlite:///{}".format(tmp_path / "collide.db"))
+    Base.metadata.create_all(engine)
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO users (id, name, phone, role, pin_hash) "
+                       "VALUES ('u1','A','+233200000001','cho','x')"))
+        c.execute(text("INSERT INTO users (id, name, phone, role, pin_hash) "
+                       "VALUES ('u2','B','0200000001','cho','x')"))
+
+    report = add_missing_columns(engine)          # must not raise
+    assert any("collide" in r for r in report), \
+        "the collision was not reported to anyone"
+
+    with engine.begin() as c:
+        rows = dict(c.execute(text("SELECT id, phone FROM users")).fetchall())
+    assert rows["u1"] == "+233200000001"
+    assert rows["u2"] == "0200000001", "a row was overwritten into a duplicate"
+
+
+def test_normalising_legacy_numbers_uses_the_primary_key(tmp_path):
+    """Every table it touches must have one, or it must say it skipped."""
+    from sqlalchemy import create_engine, text
+    from app.db import Base
+    from app.migrate import add_missing_columns
+
+    engine = create_engine("sqlite:///{}".format(tmp_path / "pk.db"))
+    Base.metadata.create_all(engine)
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO drivers (id, name, phone, community, "
+                       "available, source) VALUES "
+                       "('d1','L','0244000111','Kpale',1,'roster')"))
+        c.execute(text("INSERT INTO users (id, name, phone, role, pin_hash) "
+                       "VALUES ('u9','W','0200000009','cho','x')"))
+
+    report = add_missing_columns(engine)
+    assert not any("SKIPPED" in r and "primary key" in r for r in report), \
+        "a phone table has no usable primary key: {}".format(report)
+    with engine.begin() as c:
+        assert c.execute(text("SELECT phone FROM drivers")).scalar() == "+233244000111"
+        assert c.execute(text("SELECT phone FROM users")).scalar() == "+233200000009"

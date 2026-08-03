@@ -14,6 +14,7 @@ data movement. Anything beyond that needs Alembic and a considered plan, which
 is the right tool the moment this carries real patient data.
 """
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 
 from .db import Base
@@ -102,6 +103,15 @@ def add_missing_columns(engine: Engine) -> list:
     return added
 
 
+def _primary_key(inspector, table: str):
+    """The single-column primary key, or None if there isn't one."""
+    try:
+        columns = inspector.get_pk_constraint(table).get("constrained_columns") or []
+    except Exception:
+        return None
+    return columns[0] if len(columns) == 1 else None
+
+
 def normalise_stored_phones(engine: Engine) -> list:
     """Bring numbers written before normalisation existed into one form.
 
@@ -127,19 +137,49 @@ def normalise_stored_phones(engine: Engine) -> list:
         for column in columns:
             if column not in have:
                 continue
+            # Addressed by primary key, not by rowid. rowid is SQLite-only,
+            # and this runs at startup -- so on the Postgres deployment that
+            # render.yaml invites you to switch on, the app would not have
+            # booted at all.
+            key = _primary_key(inspector, table)
+            if key is None:
+                changed.append(
+                    "SKIPPED {}.{} (no single-column primary key)".format(
+                        table, column))
+                continue
+
             with engine.begin() as connection:
                 rows = connection.execute(text(
-                    "SELECT rowid, {0} FROM {1} WHERE {0} IS NOT NULL AND {0} != ''"
-                    .format(column, table))).fetchall()
-                fixed = 0
-                for rowid, value in rows:
-                    canonical = normalise(value)
-                    if canonical and canonical != value:
+                    "SELECT {0}, {1} FROM {2} "
+                    "WHERE {1} IS NOT NULL AND {1} <> ''"
+                    .format(key, column, table))).fetchall()
+
+            fixed, collided = 0, []
+            for row_key, value in rows:
+                canonical = normalise(value)
+                if not canonical or canonical == value:
+                    continue
+                # One row at a time, in its own transaction. User.phone is
+                # unique, so two legacy spellings of the same handset collide
+                # the moment they are normalised -- and this runs at startup,
+                # so one duplicated number in an old database would stop the
+                # service from booting. The collision is a real duplicate that
+                # needs a person; it is reported and the row is left alone.
+                try:
+                    with engine.begin() as connection:
                         connection.execute(
-                            text("UPDATE {0} SET {1} = :v WHERE rowid = :r"
-                                 .format(table, column)),
-                            {"v": canonical, "r": rowid})
-                        fixed += 1
+                            text("UPDATE {0} SET {1} = :v WHERE {2} = :k"
+                                 .format(table, column, key)),
+                            {"v": canonical, "k": row_key})
+                    fixed += 1
+                except IntegrityError:
+                    collided.append(str(row_key))
+
+            if collided:
+                changed.append(
+                    "{}.{} ({} left as written — normalising would collide "
+                    "with an existing row: {})".format(
+                        table, column, len(collided), ", ".join(collided[:3])))
             if fixed:
                 changed.append("{}.{} (normalised {} numbers)".format(
                     table, column, fixed))

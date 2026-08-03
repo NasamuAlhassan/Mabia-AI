@@ -25,7 +25,7 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 - **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 150 tests
+./scripts/test.sh    # 150 backend, 6 frontend
 ```
 
 ## Make it call a real phone

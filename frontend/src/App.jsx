@@ -34,6 +34,7 @@ const SUN_KEY = 'mabia.sun'
 function Shell({ children }) {
   const location = useLocation()
   const [pending, setPending] = useState(0)
+  const [refused, setRefused] = useState([])
   const [online, setOnline] = useState(navigator.onLine)
   const [lastSync, setLastSync] = useState(
     Number(localStorage.getItem('mabia.lastSync')) || null)
@@ -46,7 +47,17 @@ function Shell({ children }) {
   }, [sun])
 
   useEffect(() => {
-    const tick = async () => setPending(await outbox.count().catch(() => 0))
+    const tick = async () => {
+      const [sendable, rejected] = await Promise.all([
+        outbox.sendable().catch(() => []),
+        outbox.rejected().catch(() => []),
+      ])
+      // Counted separately. A record the server has refused is not "waiting to
+      // send" -- no amount of waiting will send it, and folding it into that
+      // number is how it stays invisible.
+      setPending(sendable.length)
+      setRefused(rejected)
+    }
     tick()
     const timer = setInterval(tick, 5000)
     const up = () => setOnline(true)
@@ -67,7 +78,8 @@ function Shell({ children }) {
       const now = Date.now()
       setLastSync(now)
       localStorage.setItem('mabia.lastSync', String(now))
-      setPending(await outbox.count().catch(() => 0))
+      setPending((await outbox.sendable().catch(() => [])).length)
+      setRefused(await outbox.rejected().catch(() => []))
     } catch {
       // Stays queued. The bar keeps saying so rather than clearing the badge.
     } finally {
@@ -118,6 +130,11 @@ function Shell({ children }) {
             {pending > 0 && (
               <div style={{ opacity: .75 }}>{pending} waiting to send</div>
             )}
+            {refused.length > 0 && (
+              <div style={{ marginTop: 2 }}>
+                {refused.length} could not be saved
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -148,6 +165,27 @@ function Shell({ children }) {
           {sun ? 'Sun on' : 'Sun'}
         </button>
       </header>
+
+      {/* The server refused these and this device is the only copy. Loud,
+          permanent until dealt with, and never folded into "waiting to send" --
+          waiting is exactly what will not fix them. */}
+      {refused.length > 0 && (
+        <div className="notice bad" role="alert"
+             style={{ margin: '0 0 .6rem', borderRadius: 0 }}>
+          <strong>{refused.length} record{refused.length > 1 ? 's' : ''} could
+          not be saved.</strong> They are still on this phone and nothing has
+          been lost, but they need fixing before they will go.
+          <ul style={{ margin: '.4rem 0 .4rem 1.1rem', padding: 0 }}>
+            {refused.slice(0, 4).map(r => (
+              <li key={r.event_id}>
+                {(r.event_type || 'record').replace(/_/g, ' ')} —{' '}
+                {r.rejected_reason}
+              </li>
+            ))}
+          </ul>
+          {refused.length > 4 && <div>…and {refused.length - 4} more.</div>}
+        </div>
+      )}
 
       {/* Always present, never a toast: how old this is, and what is waiting. */}
       <div className={`syncbar ${stale ? 'stale' : ''}`} role="status">

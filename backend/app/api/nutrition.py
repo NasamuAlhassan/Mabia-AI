@@ -61,7 +61,11 @@ class RecallIn(BaseModel):
     # not deficits. Defaulting to True keeps every existing caller correct,
     # and `unknown` is how a partial recall says so.
     complete: bool = True
-    unknown: List[str] = []
+    # None, not []. An empty list is a positive claim that nothing was left
+    # unasked, and Recall reads it that way -- so `complete: false` did
+    # precisely nothing unless the caller also enumerated every unasked
+    # question by key, and a caller who can do that does not need the flag.
+    unknown: Optional[List[str]] = None
     region: Optional[str] = None
     month: Optional[int] = Field(default=None, ge=1, le=12)
     affordability: Optional[str] = None
@@ -90,9 +94,15 @@ def assess(body: RecallIn, db: Session = Depends(get_db),
     # everything not ticked was asked and denied. Saying so explicitly is the
     # point -- the old constructor inferred it, which is how a partially
     # completed recall silently became a set of measured gaps.
-    recall = (Recall.from_complete(body.instrument, body.present)
-              if body.complete
-              else Recall(body.instrument, body.present, unknown=body.unknown))
+    if body.complete:
+        recall = Recall.from_complete(body.instrument, body.present)
+    elif body.unknown is not None:
+        recall = Recall(body.instrument, body.present, unknown=body.unknown)
+    else:
+        # Interrupted, and the caller has not said where. Everything she did
+        # not name as eaten is unestablished -- which is the whole point of
+        # saying the recall was not completed.
+        recall = Recall(body.instrument, body.present)
     rec = recommend(
         recall,
         region=body.region or (patient.region if patient else "Northern"),
@@ -106,6 +116,11 @@ def assess(body: RecallIn, db: Session = Depends(get_db),
                   event_type=ev.DIET_RECALL,
                   payload={"instrument": recall.instrument, "score": recall.score,
                            "total": recall.total, "missing": recall.missing,
+                           # Without this the projection reads a partial recall
+                           # as fully measured, and all three guards that key on
+                           # mdd_unknown are defeated by the absent key rather
+                           # than by a wrong value.
+                           "unknown": recall.unknown,
                            "present": recall.present,
                            "message": rec.message if rec else None})
         db.commit()

@@ -3249,3 +3249,232 @@ def test_contacts_nobody_was_allowed_to_make_are_not_counted_as_failures(client,
     body = client.get("/api/metrics", headers=auth).json()
     assert "contacts_not_permitted" in body
     assert body["contact_completion"] is None or 0 <= body["contact_completion"] <= 100
+
+
+# ------------------------------- absence written down as a fact, elsewhere
+
+
+def test_a_call_that_rang_out_is_not_folded_as_a_completed_contact(db):
+    """The fold hard-coded "completed" and reset the unreachable counter.
+
+    A call the provider reported as dropped -- a ring-out, or a hang-up
+    mid-question, the two commonest failures on a rural line -- was recorded as
+    a contact that succeeded. The rule that says three consecutive unreachable
+    attempts is not safety could therefore never fire for them.
+    """
+    from app.api.telephony import _after_call
+    from app.models import PatientState
+    from app.telephony import service as tel
+
+    patient = Patient(name="Rings Out", phone="+233240000921", community="Kpale",
+                      region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    for _ in range(3):
+        session, _ = tel.start_call(db, phone=patient.phone,
+                                    patient_id=patient.id, purpose="outreach",
+                                    language="english")
+        session.outcome = "dropped"
+        db.flush()
+        _after_call(db, session)
+    db.flush()
+
+    state = db.get(PatientState, patient.id)
+    assert state.last_contact_outcome != "completed"
+    assert state.consecutive_unreachable == 3, \
+        "the counter was reset by a call that never connected"
+    assert "contact.unreachable" in (state.reason_codes or [])
+
+
+def test_one_dropped_call_does_not_retire_an_antenatal_contact(db):
+    """due_contacts only ever selects "pending", so marking it missed on the
+    first drop meant nobody ever rang her again for that WHO contact."""
+    from app.api.telephony import _after_call
+    from app.models import Contact
+    from app.telephony import service as tel
+
+    patient = Patient(name="One Drop", phone="+233240000922", community="Kpale",
+                      region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    contact = Contact(patient_id=patient.id, week=30,
+                      due_date=dt.date.today(), status="pending", attempts=1)
+    db.add(contact)
+    db.flush()
+
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    session.contact_id = contact.id
+    session.outcome = "dropped"
+    db.flush()
+    _after_call(db, session)
+    db.flush()
+
+    assert contact.status == "pending", \
+        "retired after one drop, so she is never called again for week 30"
+
+    contact.attempts = 2
+    session2, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                 purpose="outreach", language="english")
+    session2.contact_id = contact.id
+    session2.outcome = "dropped"
+    db.flush()
+    _after_call(db, session2)
+    db.flush()
+    assert contact.status == "missed", "it must give up eventually"
+
+
+def test_an_unrecorded_distance_is_not_read_as_living_at_the_door(db):
+    """`or 0` asserted she is at the facility whenever nobody had asked."""
+    from app.engines.risk import classify
+
+    class Snap:
+        active_danger_signs = ["fever"]
+        muac_mother = muac_child = None
+        mdd_instrument = "mdd_w"
+        mdd_history = []
+        ifa_adherent = None
+        consecutive_unreachable = 0
+        red_open = False
+        last_contact_at = None
+        weeks_pregnant = 30
+
+    class Near:
+        minutes_to_facility = 10
+        road_condition = "fair"
+
+    class Unknown:
+        minutes_to_facility = None
+        road_condition = None
+
+    near = classify(Snap(), Near())
+    unknown = classify(Snap(), Unknown())
+    assert "access.unknown" not in [r.code for r in near.reasons]
+    assert "access.unknown" in [r.code for r in unknown.reasons], \
+        "an unasked question was silently answered as 'she lives next door'"
+
+
+def test_a_muac_event_with_no_measurement_does_not_erase_the_last_one(db):
+    """A follow-up with an empty field wiped a severe reading and its RED."""
+    from app import events as evmod
+    from app.models import PatientState
+
+    patient = Patient(name="Muac Child", phone="+233240000923",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    evmod.append(db, patient_id=patient.id, actor_id="cho",
+                 event_type=evmod.MUAC,
+                 payload={"subject": "child", "value_cm": 10.8})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+    assert db.get(PatientState, patient.id).risk_level == "red"
+
+    evmod.append(db, patient_id=patient.id, actor_id="cho",
+                 event_type=evmod.MUAC, payload={"subject": "child"})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+    assert db.get(PatientState, patient.id).risk_level == "red", \
+        "an empty measurement erased a severe one"
+
+
+def test_a_muac_with_no_subject_is_refused_rather_than_filed_as_the_mother(db):
+    """It turned an 11 cm CMAM referral into a note about pregnancy."""
+    from app import events as evmod
+    from app.models import PatientState
+
+    patient = Patient(name="No Subject", phone="+233240000924",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    evmod.append(db, patient_id=patient.id, actor_id="cho",
+                 event_type=evmod.MUAC, payload={"value_cm": 11.0})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+    state = db.get(PatientState, patient.id)
+    assert state.muac_mother is None, "a subjectless arm measurement was filed"
+
+
+def test_an_absent_iron_answer_is_not_recorded_as_refusing_them(db):
+    """bool() made absent False -- which the engine states as anaemia risk --
+    and made the string "no" True, because a non-empty string is truthy."""
+    from app import events as evmod
+    from app.models import PatientState
+
+    patient = Patient(name="Iron Answers", phone="+233240000925",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+
+    evmod.append(db, patient_id=patient.id, actor_id="cho",
+                 event_type=evmod.IFA, payload={})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+    assert db.get(PatientState, patient.id).ifa_adherent is None, \
+        "an unasked question was recorded as a refusal"
+
+    evmod.append(db, patient_id=patient.id, actor_id="cho",
+                 event_type=evmod.IFA, payload={"adherent": "no"})
+    evmod.refresh_state(db, patient.id)
+    db.flush()
+    assert db.get(PatientState, patient.id).ifa_adherent is False, \
+        "'no' was recorded as taking them"
+
+
+def test_a_failed_alert_is_recorded_and_shown(db):
+    """Nobody inspected the send result, so a refused SMS produced an
+    emergency that read as though the health worker had been told."""
+    from app.telephony import service as tel
+
+    # A fresh patient: raise_emergency merges into an already-open emergency
+    # and returns before it ever reaches the alert.
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Alert Fails", phone="+233240000931",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    original = tel.send_sms
+
+    class Refused:
+        ok = False
+        error = "No Africa's Talking API key configured."
+
+    tel.send_sms = lambda *a, **k: Refused()
+    try:
+        emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+        db.flush()
+    finally:
+        tel.send_sms = original
+
+    assert emergency.alert_failed is True
+    assert "API key" in (emergency.alert_error or "")
+
+
+def test_an_interrupted_paper_recall_needs_no_enumeration_to_work(client, db, auth):
+    """`complete: false` did nothing at all unless the caller also listed every
+    unasked question by key -- and a caller who can do that does not need the
+    flag."""
+    r = client.post("/api/nutrition/assess", headers=auth, json={
+        "instrument": "mdd_w", "present": ["grains", "pulses"],
+        "complete": False, "month": 7})
+    assert r.status_code == 200
+    recall = r.json()["recall"]
+    assert recall["missing"] == [], "gaps invented from an interrupted form"
+    assert len(recall["unknown"]) == 8
+
+
+def test_a_saved_partial_recall_is_stored_as_partial(client, db, auth):
+    """The endpoint said "not measured" and wrote an event asserting the
+    measurement, defeating all three guards that key on mdd_unknown."""
+    from app.models import PatientState
+
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    r = client.post("/api/nutrition/assess", headers=auth, json={
+        "instrument": "mdd_w", "present": ["grains", "pulses"],
+        "complete": False, "month": 7,
+        "patient_id": patient.id, "save": True})
+    assert r.status_code == 200
+    db.expire_all()
+    assert (db.get(PatientState, patient.id).mdd_unknown or 0) == 8, \
+        "stored as a fully measured recall"

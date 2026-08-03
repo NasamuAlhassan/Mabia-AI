@@ -182,14 +182,36 @@ def _apply(snap: Snapshot, event: Event) -> None:
             snap.mdd_history.append(payload["score"])
 
     elif kind == MUAC:
+        # A measurement event carrying no measurement used to overwrite the
+        # one before it, so a follow-up with an empty field erased a severe
+        # reading and the RED with it.
         value = payload.get("value_cm")
-        if payload.get("subject") == "child":
+        if value is None:
+            return
+        # An absent or misspelt subject filed a child's arm circumference
+        # under the mother, turning an 11 cm CMAM referral into an amber note
+        # about undernutrition in pregnancy. Two known values, and anything
+        # else is refused rather than guessed.
+        subject = payload.get("subject")
+        if subject not in ("child", "mother"):
+            return
+        if subject == "child":
             snap.muac_child = value
         else:
             snap.muac_mother = value
 
     elif kind == IFA:
-        snap.ifa_adherent = bool(payload.get("adherent"))
+        # Tri-state on purpose. bool() made an absent answer False -- which
+        # the risk engine states as "not taking iron and folic acid, anaemia
+        # risk" -- and made the string "no" True, because a non-empty string
+        # is truthy. Both directions were wrong and both were reachable from
+        # the sync endpoint.
+        adherent = payload.get("adherent")
+        if adherent is None:
+            return
+        if isinstance(adherent, str):
+            adherent = adherent.strip().lower() in ("1", "true", "yes", "y")
+        snap.ifa_adherent = bool(adherent)
 
     elif kind == CALL_ATTEMPTED:
         outcome = payload.get("outcome")
@@ -201,9 +223,20 @@ def _apply(snap: Snapshot, event: Event) -> None:
             snap.last_contact_at = when
 
     elif kind == CALL_COMPLETED:
+        # The event carries the outcome; this used to hard-code "completed" and
+        # reset the unreachable counter no matter what had actually happened.
+        # A call the provider reported as dropped -- a ring-out, or a hang-up
+        # mid-question -- ran finalisation, wrote this event, and was folded as
+        # a contact that succeeded. So the rule three files away that says
+        # "unreachable on three consecutive attempts is not safety" could never
+        # fire for the two commonest failures on a rural line.
+        outcome = payload.get("outcome") or "completed"
         snap.last_contact_at = when
-        snap.last_contact_outcome = "completed"
-        snap.consecutive_unreachable = 0
+        snap.last_contact_outcome = outcome
+        if outcome in ("completed", "rescheduled"):
+            snap.consecutive_unreachable = 0
+        else:
+            snap.consecutive_unreachable += 1
 
     elif kind == EMERGENCY_RAISED:
         snap.red_open = True

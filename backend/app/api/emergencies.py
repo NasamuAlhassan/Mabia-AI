@@ -164,6 +164,8 @@ def _view(db: Session, emergency: Emergency):
         "validated_at": emergency.validated_at,
         "facility_notified_at": emergency.facility_notified_at,
         "outcome": emergency.outcome, "outcome_note": emergency.outcome_note,
+        "alert_failed": bool(emergency.alert_failed),
+        "alert_error": emergency.alert_error,
         "patient": {"id": patient.id, "name": patient.name,
                     "phone": patient.phone, "community": patient.community,
                     "language": patient.language} if patient else None,

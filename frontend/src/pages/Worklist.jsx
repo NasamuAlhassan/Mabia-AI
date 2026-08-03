@@ -67,6 +67,15 @@ export default function Worklist() {
           <div className="why">
             {(em.reasons || []).map(reasonLabel).join(' · ') || 'Danger signs reported'}
           </div>
+          {/* The alert to a health worker is the one step that cannot be
+              retried by looking at a screen — if it did not send, whoever is
+              reading this is the only person who knows. */}
+          {em.alert_failed && (
+            <div className="why" style={{ fontWeight: 700 }}>
+              The text message to her health worker did not send. Reach her
+              another way.
+            </div>
+          )}
           <CriticalAction
             path={`/api/emergencies/${em.id}/validate`}
             label="Confirm and call a driver"

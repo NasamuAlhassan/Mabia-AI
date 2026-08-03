@@ -221,6 +221,32 @@ def _nurse_turn(db: Session, session: CallSession, base: str) -> str:
     return ivr.tell(db, base, session.language, "nurse_unavailable", message)
 
 
+def _settle_contact(db: Session, session: CallSession) -> None:
+    """Where a scheduled contact stands after one attempt at it.
+
+    Only a completed call retires it. Anything else counts an attempt and
+    leaves it pending until the three tries are used, at which point it stops
+    being a phone problem and becomes a visit. Marking it missed on the first
+    dropped call permanently retired that WHO antenatal contact, because
+    due_contacts only ever selects "pending" -- so nobody rang her again for
+    it and she appeared on no list.
+    """
+    if not session.contact_id:
+        return
+    from ..models import Contact
+
+    contact = db.get(Contact, session.contact_id)
+    if contact is None or contact.status in ("done", "no_consent", "not_due"):
+        return
+
+    if session.outcome == "completed":
+        contact.status = "done"
+        return
+
+    contact.attempts = (contact.attempts or 0) + 1
+    contact.status = "missed" if contact.attempts >= 3 else "pending"
+
+
 def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> None:
     """Everything expensive, once, off the call's critical path."""
     if session.purpose not in ("outreach", "hotline"):
@@ -239,11 +265,16 @@ def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> N
     # nothing is an attempt however it ended.
     collected = bool((session.answers or {}).get("danger")
                      or (session.answers or {}).get("diet"))
-    if session.outcome in ("failed", "no_input", "incomplete") and not collected:
+    if (session.outcome in ("failed", "no_input", "incomplete", "dropped")
+            and not collected):
         if session.patient_id:
             ev.record(db, patient_id=session.patient_id, actor_id="system",
                       event_type=ev.CALL_ATTEMPTED,
                       payload={"outcome": "unreachable", "session": session.id})
+        # The contact still has to move, or an attempt that reached nobody
+        # never counts against the three tries and the woman is either rung
+        # forever or -- as it was -- retired after one.
+        _settle_contact(db, session)
         return
 
     level, reasons = ivr.finalise(db, session)
@@ -251,7 +282,12 @@ def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> N
         from ..models import Contact
         contact = db.get(Contact, session.contact_id)
         if contact:
-            contact.status = "done" if session.outcome == "completed" else "missed"
+            # A contact is only retired when it was actually completed, or
+            # when we have run out of attempts. Marking it "missed" on the
+            # first dropped call permanently retired that WHO antenatal
+            # contact -- due_contacts only ever selects "pending", so nobody
+            # ever rang her again for it and she appeared on no list.
+            _settle_contact(db, session)
             contact.attempts = (contact.attempts or 0) + 1
             contact.completed_at = dt.datetime.utcnow()
             db.flush()

@@ -73,7 +73,23 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
     if cho:
         body = "RED: {}, {}. {}. Open Mabia to confirm.".format(
             patient.name, patient.community, reason_text)
-        tel.send_sms(db, cho.phone, body, kind="red_alert", patient_id=patient.id)
+        sent = tel.send_sms(db, cho.phone, body, kind="red_alert",
+                            patient_id=patient.id)
+        # Nobody looked at this result. A provider that refuses -- no key, a
+        # rotated key, quota exhausted, an account not enabled for live SMS --
+        # produced an emergency that read everywhere as though the health
+        # worker had been told, waiting for a confirmation she was never asked
+        # for. This file opens by saying no call may end without a health
+        # worker being informed; that rule needs to know when it failed.
+        if not getattr(sent, "ok", True):
+            emergency.alert_failed = True
+            emergency.alert_error = (sent.error or "")[:200]
+            ev.record(db, patient_id=patient.id, actor_id="system",
+                      event_type=ev.CALL_ATTEMPTED,
+                      payload={"outcome": "alert_failed",
+                               "channel": "sms", "to": cho.phone,
+                               "error": emergency.alert_error,
+                               "emergency_id": emergency.id})
 
     # The family is NOT told yet. validate_emergency is documented as the
     # human-in-the-loop gate, and that was true of transport and untrue of the

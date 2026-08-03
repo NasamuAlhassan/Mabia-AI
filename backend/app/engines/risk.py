@@ -184,11 +184,28 @@ def classify(snapshot, patient=None) -> Verdict:
     # burn the driver network's goodwill within a week, and in a region where
     # most CHPS catchments have poor roads it would escalate almost everything.
     if patient is not None and level == AMBER:
-        minutes = getattr(patient, "minutes_to_facility", None) or 0
+        # `or 0` asserted she lives at the facility door whenever the question
+        # had simply not been asked -- in the one rule whose purpose is to
+        # shorten how long a deteriorating symptom may be left. Six of seven
+        # real records have no distance on file, so that default was deciding
+        # "this week" instead of "tonight" for almost everybody.
+        minutes = getattr(patient, "minutes_to_facility", None)
         road = getattr(patient, "road_condition", None)
-        remote = minutes >= 90 or (minutes >= 45 and road == "poor")
         clinical = any(r.code.startswith("sign.") or r.code.startswith("muac.")
                        for r in reasons)
+        remote = minutes is not None and (
+            minutes >= 90 or (minutes >= 45 and road == "poor"))
+
+        # Unknown is not near. It is not far either -- inventing a distance
+        # would escalate almost every amber in a region where most catchments
+        # have poor roads. So it says what it is, on the case where it would
+        # have changed the answer, and asks for the one fact that settles it.
+        if minutes is None and clinical:
+            reasons.append(Reason(
+                "access.unknown", AMBER,
+                "How far she lives from care is not recorded",
+                "Ask at the next contact — it decides whether a symptom like "
+                "this is seen tonight or this week"))
         if remote and clinical:
             level = RED
             reasons.append(Reason(
@@ -225,6 +242,7 @@ _EXTRA_LABELS = {
     "access.remote": "Far from care",
     "emergency.open": "Emergency still open",
     "hotline.nurse_unreachable": "Could not reach a nurse",
+    "access.unknown": "Distance to care not recorded",
     "call.hotline_unfinished": "Rang the hotline; we could not take her answers",
     "call.hotline_unfinished_shared_phone":
         "Someone on this shared phone rang the hotline; we could not take "

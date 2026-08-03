@@ -330,6 +330,11 @@ class Emergency(Base):
     #                    -> arrived -> closed  (or cancelled)
     validated_by = Column(String, ForeignKey("users.id"))
     validated_at = Column(DateTime)
+    # Whether the SMS that tells a health worker about this actually left the
+    # building. False is the safe reading: it means we have no reason to think
+    # it did not.
+    alert_failed = Column(Boolean, default=False)
+    alert_error = Column(String)
     facility_id = Column(String, ForeignKey("facilities.id"))
     facility_notified_at = Column(DateTime)
     arrived_at = Column(DateTime)

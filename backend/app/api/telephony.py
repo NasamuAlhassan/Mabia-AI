@@ -314,7 +314,13 @@ async def ussd(request: Request, db: Session = Depends(get_db)):
     phone = (form.get("phoneNumber") or "").strip()
     text = (form.get("text") or "").strip()
 
-    user = db.query(User).filter(User.phone == phones.normalise(phone)).first()
+    # Every spelling, as the sign-in screen does. A row the startup migration
+    # could not rewrite -- because normalising it would have collided with
+    # another -- keeps its original form, and looking only for the canonical
+    # one told a registered worker she was not registered.
+    user = (db.query(User)
+              .filter(User.phone.in_(phones.variants(phone)))
+              .first())
     if not user:
         db.commit()
         return Response("END This number is not registered with Mabia.",
@@ -357,8 +363,12 @@ def _ussd_screen(db: Session, user: User, steps) -> str:
             return "END Not a valid choice."
         from ..engines.risk import labels_for
         reasons = labels_for(state.reason_codes) or "no reasons recorded"
-        return "END {}: {}. Call {}.".format(patient.name[:16], reasons[:90],
-                                             patient.phone)[:180]
+        # Shown the way it is written here, as everywhere else. A worker
+        # reading a number off a USSD screen to dial it should not have to
+        # convert E.164 in her head at two in the morning.
+        return "END {}: {}. Call {}.".format(
+            patient.name[:16], reasons[:90],
+            phones.display(patient.phone))[:180]
 
     if choice == "3":
         from ..models import Contact

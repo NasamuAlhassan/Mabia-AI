@@ -470,6 +470,7 @@ _PHONE_COLUMNS = {
     "messages": ("to_phone",),
     "callback_requests": ("phone",),
     "care_circle": ("phone",),
+    "ussd_sessions": ("phone",),
 }
 
 

@@ -3478,3 +3478,56 @@ def test_a_saved_partial_recall_is_stored_as_partial(client, db, auth):
     db.expire_all()
     assert (db.get(PatientState, patient.id).mdd_unknown or 0) == 8, \
         "stored as a fully measured recall"
+
+
+# ------------------------------------------------------------------- USSD
+
+
+def test_ussd_recognises_a_worker_however_her_number_is_stored(client, db):
+    """The same lookup bug as the sign-in screen, one endpoint over.
+
+    A row the startup migration could not rewrite keeps its original spelling,
+    and matching only the canonical form told a registered worker she was not
+    registered -- on the channel that exists for when the app will not load.
+    """
+    from app.security import hash_pin
+
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) VALUES "
+        "('ussdlegacy', 'Legacy CHO', '0209997771', 'cho', :p)"),
+        {"p": hash_pin("1234")})
+    db.commit()
+
+    for spelling in ("0209997771", "+233209997771", "233209997771"):
+        r = client.post("/api/telephony/ussd", data={
+            "sessionId": "ussd-" + spelling, "phoneNumber": spelling, "text": ""})
+        assert r.status_code == 200
+        assert "not registered" not in r.text, \
+            "{} was refused".format(spelling)
+
+
+def test_every_ussd_screen_fits_the_handset(client, db):
+    """The docstring promises ~182 characters and nothing enforced it.
+
+    A screen over the limit is truncated by the network, so the last option --
+    which on the top menu is the emergency one -- is the part that vanishes.
+    """
+    paths = ["", "1", "2", "3", "1*1", "2*1", "9", "1*9"]
+    for text_value in paths:
+        r = client.post("/api/telephony/ussd", data={
+            "sessionId": "ussd-len-" + (text_value or "root"),
+            "phoneNumber": "+233200000001", "text": text_value})
+        assert r.status_code == 200
+        assert len(r.text) <= 182, \
+            "screen {!r} is {} characters: {!r}".format(
+                text_value, len(r.text), r.text[:60])
+        assert r.text.startswith(("CON ", "END ")), \
+            "screen {!r} has no USSD verb: {!r}".format(text_value, r.text[:40])
+
+
+def test_an_unregistered_number_gets_a_terminal_screen(client, db):
+    """CON on a dead end leaves the handset waiting for input that goes
+    nowhere, and she pays for the session while it does."""
+    r = client.post("/api/telephony/ussd", data={
+        "sessionId": "ussd-stranger", "phoneNumber": "+233299999998", "text": ""})
+    assert r.text.startswith("END ")

@@ -248,17 +248,20 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
     """
     from .models import CareCircleMember
 
-    drivers = (db.query(Driver)
-                 .filter(Driver.community == patient.community,
-                         Driver.available.is_(True))
-                 .all())
+    # Everyone available, ranked. Her own community first, but not exclusively:
+    # the list used to be filtered to her village and only widened when that
+    # village had NO drivers at all -- never when they had all declined. So the
+    # cascade could stop with "no driver accepted, assign transport manually"
+    # while a vehicle sat unasked one village over. It also meant a man she
+    # named herself was skipped if he happened to be registered under a
+    # neighbouring community, which is common: drivers register where they
+    # live, and she names who she trusts.
+    drivers = db.query(Driver).filter(Driver.available.is_(True)).all()
 
     # A driver she has already agreed with beats the best-ranked stranger.
     named = (db.query(CareCircleMember)
                .filter(CareCircleMember.patient_id == patient.id,
                        CareCircleMember.role == "driver").first())
-    if not drivers:
-        drivers = db.query(Driver).filter(Driver.available.is_(True)).all()
 
     # The preference has to live IN the sort key. A pre-sort followed by a
     # second sorted() on different keys silently discarded it, so the man she
@@ -545,6 +548,54 @@ def build_contact_schedule(db: Session, patient: Patient) -> List:
         created.append(contact)
     db.flush()
     return created
+
+
+# How long an emergency may sit before somebody is reminded it exists. Chosen
+# against the clinical clock, not a convenient round number: an obstetric
+# emergency that has not moved in two hours has stopped being a dispatch
+# problem and become a visit.
+STALE_AFTER_HOURS = 2
+
+
+def nudge_stale_emergencies(db: Session, limit: int = 25) -> dict:
+    """Re-alert on cases that have stopped moving.
+
+    Nothing anywhere queried an emergency by age. A driver call where the
+    provider never sends the hang-up callback leaves a case in "dispatching"
+    for ever, with no re-alert and no escalation -- and the only place it
+    appears is a list a worker has to think to open. A RED nobody looks at is
+    the same as a RED nobody raised.
+    """
+    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=STALE_AFTER_HOURS)
+    stuck = (db.query(Emergency)
+               .filter(Emergency.status.in_(
+                   ["pending_validation", "validated", "dispatching",
+                    "transporting", "no_transport"]),
+                       Emergency.created_at < cutoff)
+               .order_by(Emergency.created_at).limit(limit).all())
+
+    nudged = []
+    for emergency in stuck:
+        # Once every STALE_AFTER_HOURS, not on every cron tick.
+        last = emergency.nudged_at or emergency.created_at
+        if last > cutoff:
+            continue
+        patient = db.get(Patient, emergency.patient_id)
+        if patient is None:
+            continue
+
+        hours = int((dt.datetime.utcnow() - emergency.created_at)
+                    .total_seconds() // 3600)
+        _alert_cho(db, patient,
+                   "STILL OPEN after {} hours: {}, {}. Status: {}. "
+                   "Nobody has moved this on.".format(
+                       hours, patient.name, patient.community,
+                       emergency.status.replace("_", " ")))
+        emergency.nudged_at = dt.datetime.utcnow()
+        nudged.append(emergency.id)
+
+    db.flush()
+    return {"nudged": len(nudged), "checked": len(stuck)}
 
 
 def run_due_contacts(db: Session, limit: int = 25) -> dict:

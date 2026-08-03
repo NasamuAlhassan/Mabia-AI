@@ -41,8 +41,13 @@ def run_due(db: Session = Depends(get_db),
     """Place every call that is due today. Safe to run repeatedly."""
     actor = _authorise(x_cron_token, authorization, db)
     result = services.run_due_contacts(db)
+    # The same tick also looks for emergencies that have stopped moving. A
+    # scheduler that places calls but never notices a case stuck for hours is
+    # only doing half the job.
+    stale = services.nudge_stale_emergencies(db)
     db.commit()
-    return {"ran_by": actor, "at": dt.datetime.utcnow(), **result}
+    return {"ran_by": actor, "at": dt.datetime.utcnow(),
+            "stale_emergencies": stale, **result}
 
 
 @router.get("/due")

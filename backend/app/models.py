@@ -333,6 +333,9 @@ class Emergency(Base):
     # Whether the SMS that tells a health worker about this actually left the
     # building. False is the safe reading: it means we have no reason to think
     # it did not.
+    # When a human was last reminded this is still open, so a two-hourly
+    # reminder does not become a two-minutely one.
+    nudged_at = Column(DateTime)
     alert_failed = Column(Boolean, default=False)
     alert_error = Column(String)
     facility_id = Column(String, ForeignKey("facilities.id"))

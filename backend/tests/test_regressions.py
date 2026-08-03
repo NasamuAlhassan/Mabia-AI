@@ -3895,3 +3895,113 @@ def test_every_catalogue_category_is_reachable_in_the_workbench(db):
     missing = produced - offered
     assert not missing, \
         "no way to filter to: {} — those lines cannot be found".format(missing)
+
+
+def test_the_cascade_widens_rather_than_giving_up_with_a_vehicle_unasked(db):
+    """The list was filtered to her village and only widened when that village
+    had NO drivers -- never when they had all declined. So it could stop with
+    "assign transport manually" while a vehicle sat unasked one village over."""
+    from app.models import Dispatch
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="All Declined", phone="+233240000961",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    neighbour = Driver(name="Next Village", phone="+233240000962",
+                       community="Sagnarigu", available=True)
+    db.add(neighbour)
+    db.flush()
+
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    for _ in range(8):
+        offer = services.offer_next_driver(db, emergency)
+        if offer is None:
+            break
+        services.driver_responded(db, offer, False)
+    db.flush()
+
+    rung = {db.get(Driver, d.driver_id).phone
+            for d in db.query(Dispatch).filter(
+                Dispatch.emergency_id == emergency.id).all()}
+    assert "+233240000962" in rung, \
+        "gave up while an available driver one village over was never asked"
+
+
+def test_the_driver_she_named_is_rung_even_from_the_next_village(db, client, auth):
+    """Drivers register where they live; she names who she trusts."""
+    from app.models import CareCircleMember
+
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    far = Driver(name="Trusted Elsewhere", phone="+233240000963",
+                 community="Somewhere Else", available=True, source="roster")
+    db.add(far)
+    db.flush()
+    # Earlier tests may already have named a driver for her.
+    row = (db.query(CareCircleMember)
+             .filter(CareCircleMember.patient_id == patient.id,
+                     CareCircleMember.role == "driver").first())
+    if row is None:
+        row = CareCircleMember(patient_id=patient.id, role="driver")
+        db.add(row)
+    row.name, row.phone = "Trusted Elsewhere", "+233240000963"
+    db.flush()
+
+    assert services.rank_drivers(db, patient)[0].phone == "+233240000963", \
+        "the man she named was skipped for living in the next village"
+
+
+def test_an_emergency_that_stops_moving_is_noticed(db):
+    """Nothing anywhere queried an emergency by age. A driver call whose
+    hang-up callback never arrives leaves a case dispatching for ever, with no
+    re-alert and no escalation."""
+    import datetime as _dt
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Stuck Case", phone="+233240000964",
+                      community="Kpale", region="Northern", consent=True,
+                      assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    db.flush()
+
+    # Nothing to say while it is fresh.
+    assert services.nudge_stale_emergencies(db)["nudged"] == 0
+
+    emergency.created_at = _dt.datetime.utcnow() - _dt.timedelta(hours=5)
+    db.flush()
+    before = db.query(Message).filter(Message.patient_id == patient.id).count()
+    assert services.nudge_stale_emergencies(db)["nudged"] == 1
+    db.flush()
+
+    after = db.query(Message).filter(Message.patient_id == patient.id).count()
+    assert after > before
+    body = (db.query(Message).filter(Message.patient_id == patient.id)
+              .order_by(Message.created_at.desc()).first().body)
+    assert "STILL OPEN" in body and "5 hours" in body
+
+    # And it does not nag on every tick.
+    assert services.nudge_stale_emergencies(db)["nudged"] == 0
+
+
+def test_a_closed_emergency_is_never_nudged(db):
+    """The reminder must not resurrect anything or shout about settled cases."""
+    import datetime as _dt
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    patient = Patient(name="Settled", phone="+233240000965", community="Kpale",
+                      region="Northern", consent=True, assigned_cho_id=worker.id)
+    db.add(patient)
+    db.flush()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    services.validate_emergency(db, emergency, worker)
+    services.close_emergency(db, emergency, worker, "care_received", "")
+    emergency.created_at = _dt.datetime.utcnow() - _dt.timedelta(hours=9)
+    db.flush()
+
+    assert services.nudge_stale_emergencies(db)["nudged"] == 0
+    assert emergency.status == "closed"

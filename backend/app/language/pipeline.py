@@ -75,6 +75,41 @@ def load_cached(db: Session, language: str) -> int:
     return loaded
 
 
+def adopt_audio_on_disk(db: Session, language: str) -> int:
+    """Notice clips that exist on disk but not in this database.
+
+    The audio ships in the repository; the database does not. On a host with an
+    ephemeral disk the database is recreated on every deploy, and without this
+    the platform would sit on a folder of real Dagbani and Kusaal recordings
+    while telling every caller its English fallback -- silently, because nothing
+    was actually broken.
+
+    A row already pointing at a human recording is left alone.
+    """
+    folder = AUDIO_ROOT / language
+    if not folder.is_dir():
+        return 0
+
+    on_disk = {}
+    for path in folder.iterdir():
+        if path.suffix.lower() in (".wav", ".mp3"):
+            on_disk.setdefault(path.stem, path)
+
+    adopted = 0
+    for phrase in db.query(Phrase).filter(Phrase.language == language).all():
+        path = on_disk.get(phrase.key)
+        if path is None or phrase.audio_path:
+            continue
+        phrase.audio_path = "{}/{}".format(language, path.name)
+        # Where it came from is no longer knowable from the file alone, so it
+        # is recorded as what it certainly is: audio that shipped with the build.
+        phrase.audio_source = "shipped"
+        phrase.audio_bytes = path.stat().st_size
+        adopted += 1
+    db.flush()
+    return adopted
+
+
 def sync_catalogue(db: Session, language: str) -> int:
     """Make sure every English line has a row for this language."""
     existing = {p.key: p for p in db.query(Phrase).filter(
@@ -98,6 +133,7 @@ def sync_catalogue(db: Session, language: str) -> int:
                 phrase.audio_path = None
     db.flush()
     load_cached(db, language)
+    adopt_audio_on_disk(db, language)
     return added
 
 

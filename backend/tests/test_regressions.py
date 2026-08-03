@@ -722,8 +722,14 @@ def test_a_language_with_no_model_anywhere_says_so(db):
     assert "recorded human voice" in out["note"]
 
 
-def test_kusaal_audio_came_from_the_local_model(db):
-    """Generated on this machine with no credits and no network at call time."""
+def test_kusaal_audio_is_machine_generated_not_a_human_take(db):
+    """Generated with no credits and no network at call time.
+
+    Either label is correct: "mms_tts" when this database saw it generated, and
+    "shipped" when a fresh database adopted it from the repository. What must
+    never appear here is "recorded" -- that would mean a human voice had been
+    silently overwritten.
+    """
     from app.models import Phrase
 
     rows = (db.query(Phrase)
@@ -731,7 +737,7 @@ def test_kusaal_audio_came_from_the_local_model(db):
                       Phrase.audio_path.isnot(None)).all())
     if not rows:
         pytest.skip("no Kusaal clips in this checkout")
-    assert all(r.audio_source == "mms_tts" for r in rows)
+    assert all(r.audio_source in ("mms_tts", "shipped") for r in rows)
     assert all(r.audio_bytes > 5000 for r in rows), "a clip is suspiciously small"
 
 
@@ -741,3 +747,53 @@ def test_mms_refuses_rather_than_returning_silence():
     ok, audio, error = mms.synthesise("Hello", "dagbani")
     assert ok is False
     assert "No MMS model exists" in error
+
+
+def test_shipped_audio_is_found_when_the_database_is_new(db):
+    """The clips ship in the repository; the database does not.
+
+    On a host with an ephemeral disk the database is rebuilt on every deploy.
+    Without reconciliation the platform would sit on a folder of real recordings
+    and tell every caller its English fallback -- silently, because nothing was
+    actually broken.
+    """
+    from pathlib import Path
+    from app.language import pipeline
+    from app.models import Phrase
+
+    folder = Path(__file__).resolve().parents[1] / "audio" / "kusaal"
+    clips = list(folder.glob("*.wav")) if folder.is_dir() else []
+    if not clips:
+        pytest.skip("no Kusaal clips in this checkout")
+
+    # Wipe every audio pointer, as a fresh deploy would.
+    for phrase in db.query(Phrase).filter(Phrase.language == "kusaal").all():
+        phrase.audio_path = None
+        phrase.audio_source = None
+    db.flush()
+    assert pipeline.status(db, "kusaal")["with_audio"] == 0
+
+    adopted = pipeline.adopt_audio_on_disk(db, "kusaal")
+    db.flush()
+    assert adopted == len(clips)
+    assert pipeline.status(db, "kusaal")["with_audio"] == len(clips)
+
+
+def test_adoption_never_overwrites_a_human_recording(db):
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "kusaal")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "kusaal",
+                        Phrase.key == "danger_bleeding").first())
+    if phrase is None:
+        pytest.skip("catalogue not present")
+    phrase.audio_source = "recorded"
+    phrase.audio_path = "kusaal/danger_bleeding.wav"
+    db.flush()
+
+    pipeline.adopt_audio_on_disk(db, "kusaal")
+    db.expire_all()
+    again = db.get(Phrase, phrase.id)
+    assert again.audio_source == "recorded"

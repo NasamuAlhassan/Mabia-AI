@@ -117,11 +117,39 @@ export default function Voice() {
 
           {here.note && <div className="notice warn">{here.note}</div>}
 
+          {/* Which routes can actually speak this language, and which cannot.
+              A judge asking "what happens when your API runs out" should be
+              able to read the answer off the screen. */}
+          <div className="row wrap" style={{ gap: 6, margin: '10px 0' }}>
+            <span className="muted tiny">Speech routes:</span>
+            {(here.routes || []).length === 0 ? (
+              <span className="badge red">none — human voice only</span>
+            ) : here.routes.map(r => (
+              <span className="badge plain" key={r}>
+                {r === 'khaya' ? 'Khaya (better voice, needs credits)'
+                  : 'Meta MMS (runs here, no credits)'}
+              </span>
+            ))}
+          </div>
+
+          {here.too_long?.length > 0 && (
+            <div className="notice warn">
+              {here.too_long.length}{' '}
+              {here.too_long.length === 1 ? 'line is' : 'lines are'} too long to
+              synthesise as one clip — the longest is{' '}
+              {Math.max(...here.too_long.map(t => t.chars))} characters against a
+              ceiling near 100. Shorten the English and re-translate. A prompt
+              that cannot be said in one breath was not going to be heard in one
+              either.
+            </div>
+          )}
+
           <p className="muted tiny">
             {here.recorded_by_human} of {here.with_audio || 0} clips are a human
-            voice. Anything without audio falls back to spoken English on a real
-            call — so “{here.needs_recording} to record” is the honest measure of
-            how much of this language the platform can speak today.
+            voice; the rest are synthesised. Anything with no audio at all falls
+            back to spoken English on a real call — so “{here.needs_recording} to
+            record” is the honest measure of how much of this language the
+            platform can speak today.
           </p>
 
           {here.can_translate && (

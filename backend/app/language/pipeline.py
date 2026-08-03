@@ -44,13 +44,16 @@ AUDIO_MAGIC = (
     b"ID3",           # MP3 with an ID3 tag
     b"\xff\xfb", b"\xff\xf3", b"\xff\xf2",   # bare MPEG frame
     b"OggS",          # Ogg
-    b"fLaC",
 )
 
 # webm/opus is what a browser MediaRecorder produces. It plays in an <audio>
 # tag, so a recording made in the workbench looks fine -- and it is not
 # something a GSM call can play, which is the only place it matters.
-REJECTED_MAGIC = {b"\x1a\x45\xdf\xa3": "webm or matroska"}
+# FLAC sits here rather than above because it is real audio that this system
+# cannot serve: _audio_url probes wav, mp3 and ogg only, so a FLAC upload was
+# accepted, counted toward spoken coverage, and silently never played.
+REJECTED_MAGIC = {b"\x1a\x45\xdf\xa3": "webm or matroska",
+                  b"fLaC": "FLAC"}
 
 
 def looks_like_audio(data: bytes):
@@ -60,8 +63,8 @@ def looks_like_audio(data: bytes):
     head = data[:4]
     for magic, name in REJECTED_MAGIC.items():
         if data.startswith(magic):
-            return False, ("this is {}, which plays in a browser but not on a "
-                           "phone call. Save it as WAV and upload again".format(name))
+            return False, ("this is {}, which this system cannot play down a "
+                           "phone line. Save it as WAV and upload again".format(name))
     if any(head.startswith(m) for m in AUDIO_MAGIC):
         return True, None
     return False, "this does not look like an audio file"
@@ -320,14 +323,19 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
                   and not (r == "khaya" and length > MAX_SPOKEN_CHARS)]
         if not usable:
             failed += 1
-            if length > MAX_SPOKEN_CHARS and set(routes) <= {"khaya"}:
-                phrase.error = ("Too long for Khaya ({} characters, limit {}). "
-                                "Shorten the English and re-translate."
-                                .format(length, MAX_SPOKEN_CHARS))
-            else:
-                phrase.error = "; ".join(
-                    "{}: {}".format(r, blocked[r]) for r in routes
-                    if r in blocked) or "No route available."
+            # Say every reason, not the first one that happens to match. A line
+            # skipped by Khaya for length and by MMS for being uninstalled was
+            # reported as an MMS problem, so the operator was never told about
+            # the 100-character ceiling that was the actual reason -- and that
+            # was exactly the case for the long Kusaal lines.
+            reasons = []
+            if length > MAX_SPOKEN_CHARS and "khaya" in routes:
+                reasons.append(
+                    "khaya: too long at {} characters (limit {}) — shorten the "
+                    "English and re-translate".format(length, MAX_SPOKEN_CHARS))
+            reasons += ["{}: {}".format(r, blocked[r])
+                        for r in routes if r in blocked]
+            phrase.error = "; ".join(reasons) or "No route available."
             continue
 
         # Reset per phrase. This used to be module-flow state carried across
@@ -357,6 +365,9 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
                     continue
                 made += 1
                 last_error = None
+                # It worked. Leaving the previous failure on the row showed a
+                # red error beside a line that now has a voice.
+                phrase.error = None
                 break
 
             last_error = error
@@ -396,6 +407,17 @@ def write_audio(db: Session, phrase: Phrase, data: bytes,
         raise ValueError("That language or key would write outside the audio "
                          "folder, so it was refused.")
 
+    # Retire whatever was here first. Files are named <key>.<ext>, so an mp3
+    # take used to land beside the wav it replaced -- and _audio_url probes
+    # .wav first, so the superseded recording kept playing. Any extension for
+    # this key goes, not just the one the row happens to name.
+    for stale in path.parent.glob(phrase.key + ".*"):
+        if stale.suffix != ".retired" and stale != path:
+            try:
+                stale.rename(stale.with_suffix(stale.suffix + ".retired"))
+            except OSError:
+                pass
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     phrase.audio_path = "{}/{}".format(phrase.language, path.name)
@@ -418,8 +440,9 @@ def _extension(data: bytes) -> str:
         return ".mp3"
     if data[:4] == b"OggS":
         return ".ogg"
-    if data[:4] == b"fLaC":
-        return ".flac"
+    # No .flac: _audio_url probes wav, mp3 and ogg, so a flac was accepted,
+    # counted toward spoken coverage, and silently unplayable. Refusing it is
+    # honest; pretending to store it was not.
     return ".wav"
 
 

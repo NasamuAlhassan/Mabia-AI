@@ -100,8 +100,8 @@ def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
     if body.confirmed and not member.confirmed:
         member.confirmed_at = dt.datetime.utcnow()
     member.confirmed = body.confirmed
-    if body.role == "driver" and member.phone:
-        _ensure_driver(db, patient_id, member)
+    if body.role == "driver":
+        _ensure_driver(db, patient_id, member, was.get("phone"))
 
     now = {"name": member.name, "phone": member.phone, "detail": member.detail}
     if now != was:
@@ -127,7 +127,8 @@ def _vehicle_from(detail: Optional[str]) -> str:
     return "motorking"
 
 
-def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember) -> None:
+def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember,
+                   previous_phone: Optional[str] = None) -> None:
     """Put the driver she named into the roster the cascade actually reads.
 
     Naming a driver here previously wrote a row nothing dialled: rank_drivers
@@ -135,6 +136,22 @@ def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember) -> No
     could be recorded as her transport plan and never be rung. The field was
     decorative in exactly the emergency it exists for.
     """
+    # Correcting a mistyped number used to leave the typo behind as a
+    # permanent, always-available driver. There is no delete route here, and
+    # rank_drivers falls back to the whole table when a community has nobody --
+    # so a number that never belonged to a driver was dialled during other
+    # households' emergencies, ahead of the real roster. A row this endpoint
+    # created and nobody now names is retired.
+    if previous_phone and previous_phone != member.phone:
+        stale = (db.query(Driver)
+                   .filter(Driver.phone == previous_phone,
+                           Driver.source == "care_circle").first())
+        if stale is not None and not _named_by_anyone(db, previous_phone, member):
+            stale.available = False
+
+    if not member.phone:
+        return
+
     patient = db.get(Patient, patient_id)
     existing = db.query(Driver).filter(Driver.phone == member.phone).first()
     if existing is not None:
@@ -152,4 +169,25 @@ def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember) -> No
         # taking it raw wrote "his brother's motorbike" in as a vehicle type.
         vehicle_type=_vehicle_from(member.detail),
         available=True,
+        # Marked as coming from a household form rather than the roster, so it
+        # can be told apart from a driver who registered with the programme --
+        # and so a correction can retire the row it replaced.
+        source="care_circle",
     ))
+
+
+def _named_by_anyone(db: Session, phone: str,
+                     ignoring: Optional[CareCircleMember] = None) -> bool:
+    """Whether any OTHER household still names this number as its driver.
+
+    The row being edited is excluded explicitly rather than relied upon to have
+    been flushed: this session runs with autoflush off, so a query here still
+    sees the number as it was before the correction, and the check answered
+    "yes, someone still names it" about the very edit that stopped naming it.
+    """
+    query = db.query(CareCircleMember).filter(
+        CareCircleMember.role == "driver",
+        CareCircleMember.phone == phone)
+    if ignoring is not None and ignoring.id is not None:
+        query = query.filter(CareCircleMember.id != ignoring.id)
+    return query.count() > 0

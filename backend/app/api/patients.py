@@ -1,6 +1,6 @@
 """Enrolment and the patient record."""
 import datetime as dt
-from typing import List, Optional
+from typing import Literal, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -25,7 +25,11 @@ class EnrolIn(BaseModel):
     region: str = "Northern"
     lmp: Optional[dt.date] = None
     edd: Optional[dt.date] = None
-    affordability: str = "low"
+    # Constrained, not free text. "Medium" and "moderate" both stored happily
+    # and the (correctly) fail-closed filter then treated the household as the
+    # poorest one -- so a typo quietly narrowed her food advice to whatever is
+    # free, with nothing anywhere reporting a problem.
+    affordability: Literal["low", "medium", "high"] = "low"
     taboos: List[str] = []
     # Geography, collected rather than inferred. The risk engine shortens the
     # follow-up window for a symptom that could worsen when she is far from

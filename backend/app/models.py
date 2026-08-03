@@ -94,6 +94,10 @@ class Driver(Base):
     available = Column(Boolean, default=True)
     accepted_count = Column(Integer, default=0)
     offered_count = Column(Integer, default=0)
+    # "roster" for a driver who registered with the programme, "care_circle"
+    # for one a household named on its own form. They are not the same thing
+    # and the second must be retractable.
+    source = Column(String, default="roster")
     created_at = Column(DateTime, default=now)
 
     @property

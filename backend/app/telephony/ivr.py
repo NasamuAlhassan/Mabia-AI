@@ -57,31 +57,17 @@ def _audio_url(base_url: str, language: str, key: str) -> Optional[str]:
     voice pipeline demoed as though it did not exist. Africa's Talking needs an
     absolute URL, but if no base URL is set there is no real call to serve.
     """
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[2] / "audio" / language
+    # One source of truth for where clips live, shared with the pipeline that
+    # writes them. Computing it separately here meant the two could disagree,
+    # and meant a test could not redirect audio without editing the repository's
+    # own recordings.
+    from ..language.pipeline import AUDIO_ROOT
+    root = AUDIO_ROOT / language
     for suffix in (".wav", ".mp3", ".ogg"):
         if (root / (key + suffix)).exists():
             return "{}/audio/{}/{}{}".format(
                 base_url.rstrip("/"), language, key, suffix)
     return None
-
-
-def spoken_text(db, language: str, key: str, fallback: str) -> str:
-    """The reviewed translation for this line, or None if we have none.
-
-    Only ever used to choose the words for a clip or to show on screen. It is
-    deliberately NOT used to fill a <Say>: see say_or_play below.
-    """
-    try:
-        from ..models import Phrase
-        row = (db.query(Phrase)
-                 .filter(Phrase.language == language, Phrase.key == key)
-                 .first())
-        if row and row.translated_text:
-            return row.translated_text
-    except Exception:
-        pass
-    return fallback
 
 
 def say_or_play(db, base_url: str, language: str, key: Optional[str],
@@ -127,16 +113,6 @@ def utterance(db, base_url: str, language: str, parts) -> str:
             continue
         out.append(say_or_play(db, base_url, language, key, text))
     return "".join(out) or "<Say>.</Say>"
-
-
-def compose_text(db, language: str, parts) -> str:
-    """The same parts as words, for the screen rather than the line."""
-    said = []
-    for key, fallback in parts:
-        if not fallback:
-            continue
-        said.append(spoken_text(db, language, key, fallback) if key else fallback)
-    return " ".join(s for s in said if s)
 
 
 def ask_parts(db, base_url, language, parts, callback_url) -> str:
@@ -191,6 +167,11 @@ class Turn:
 # family and a driver cascade. A midwife spots this before you finish the
 # sentence.
 QUICKENING_WEEK = 20
+
+# A wrong key re-asks, but not without limit. Silence was already capped at two
+# tries; a misdial was capped at nothing, so the call could be held open for as
+# long as keys kept being pressed -- at her cost as much as ours.
+MAX_MISDIALS = 3
 
 
 def gestational_week(db, session: CallSession):
@@ -247,6 +228,52 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
     state = session.state or GREET
 
     # --- greeting and consent -------------------------------------------
+    # A woman who flashed the hotline is not on a routine antenatal contact.
+    # She rang because something is wrong, and she was being answered with the
+    # scheduled check-in greeting -- "is this a good time to talk?" -- where
+    # pressing 2 ended her emergency call with "we will call you another time".
+    # She was also never told about pressing 9, because the escape hint only
+    # played after she had already pressed 1.
+    if state == GREET and session.purpose == "hotline":
+        if digit is None:
+            session.no_input = (session.no_input or 0) + 1
+            if session.no_input > 2:
+                return _give_up(db, session, base_url, language, transcript)
+            session.transcript = transcript
+            db.flush()
+            return Turn(ask_parts(db, base_url, language, [
+                ("hotline_greet", prompts.line("hotline_greet")),
+                ("hotline_menu", prompts.line("hotline_menu")),
+            ], callback_url))
+
+        remember("hotline_menu", digit)
+        if digit == "1":
+            # Straight into the danger questions. No consent step: she called us.
+            session.state = DANGER
+            session.cursor = 0
+            asked = danger_questions_for(db, session)
+            answers["asked_signs"] = [k for k, _ in asked]
+            session.answers = answers
+            session.transcript = transcript
+            db.flush()
+            key, text = asked[0]
+            return Turn(ask_parts(db, base_url, language, [
+                ("escape_hint", prompts.line("escape_hint")),
+                ("danger_" + key, text),
+            ], callback_url))
+
+        misdials = answers.get("misdials", 0) + 1
+        answers["misdials"] = misdials
+        session.answers = answers
+        session.transcript = transcript
+        db.flush()
+        if misdials > MAX_MISDIALS:
+            return _give_up(db, session, base_url, language, transcript)
+        return Turn(ask_parts(db, base_url, language, [
+            ("not_understood", prompts.line("not_understood")),
+            ("hotline_menu", prompts.line("hotline_menu")),
+        ], callback_url))
+
     if state == GREET:
         if digit is None:
             # She may simply be listening, or the line may be bad, or she may
@@ -267,11 +294,21 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             text = "{} {}".format(prompts.line("greet"), prompts.line("consent"))
             return Turn(ask(db, base_url, language, "greet_consent", text, callback_url))
         if digit not in ("1", "2"):
+            # A misdial re-asks, but not forever. Silence is capped at two
+            # tries and a wrong key was not capped at all, so a handset with a
+            # sticky keypad -- or a child playing with the phone -- held the
+            # line open indefinitely at her cost and ours.
+            misdials = answers.get("misdials", 0) + 1
+            answers["misdials"] = misdials
+            session.answers = answers
             session.transcript = transcript
             db.flush()
-            return Turn(ask(db, base_url, language, "greet_consent",
-                            prompts.line("not_understood") + " " +
-                            prompts.line("consent"), callback_url))
+            if misdials > MAX_MISDIALS:
+                return _give_up(db, session, base_url, language, transcript)
+            return Turn(ask_parts(db, base_url, language, [
+                ("not_understood", prompts.line("not_understood")),
+                ("consent", prompts.line("consent")),
+            ], callback_url))
         remember("consent", digit)
         if digit != "1":
             session.state = DONE
@@ -376,11 +413,17 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         group = qs[session.cursor]["group"]
         remember("diet_" + group, digit)
         if digit not in ("1", "2"):
+            misdials = answers.get("misdials", 0) + 1
+            answers["misdials"] = misdials
+            session.answers = answers
             session.transcript = transcript
             db.flush()
-            return Turn(ask(db, base_url, language, "diet_" + group,
-                            prompts.line("not_understood") + " " +
-                            qs[session.cursor]["prompt"], callback_url))
+            if misdials > MAX_MISDIALS:
+                return _give_up(db, session, base_url, language, transcript)
+            return Turn(ask_parts(db, base_url, language, [
+                ("not_understood", prompts.line("not_understood")),
+                ("diet_" + group, qs[session.cursor]["prompt"]),
+            ], callback_url))
         answers.setdefault("diet", {})[group] = (digit == "1")
         nxt = session.cursor + 1
         if nxt < len(qs):
@@ -396,8 +439,15 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         session.answers = answers
         session.transcript = transcript
         db.flush()
-        advice = _nutrition_message(db, session)
+        advice, food_key = _nutrition_message(db, session)
+        # Written into `answers`, which is what advance flushes. The helper used
+        # to assign session.answers itself and advance then reassigned its own
+        # local dict over the top, so both of these were silently dropped at
+        # flush -- which meant `exclude` read None forever and she was given
+        # word-for-word identical advice at every single contact. That is the
+        # failure the no-repeat logic exists to prevent.
         answers["nutrition_message"] = " ".join(t for _, t in advice)
+        answers["nutrition_food"] = food_key
         session.answers = answers
         session.state = BIRTH_PLAN
         db.flush()
@@ -408,12 +458,37 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
     # --- birth preparedness ------------------------------------------------
     if state == BIRTH_PLAN:
         remember("birth_plan", digit)
-        answers["birth_plan_ready"] = (digit == "1")
+
+        # The danger block refuses to read silence as an answer, and this branch
+        # did exactly that: a dropped keypress on a bad line was recorded as
+        # "she has made no birth plan", she was given the advice for it, and the
+        # call ended. Silence and a wrong key both re-ask; only after that do we
+        # record that we do not know.
+        if digit not in ("1", "2"):
+            tries = answers.get("birth_plan_tries", 0) + 1
+            answers["birth_plan_tries"] = tries
+            session.answers = answers
+            session.transcript = transcript
+            db.flush()
+            if tries <= 2:
+                bkey, btext = prompts.BIRTH_PLAN_QUESTION
+                parts = [(bkey, btext)]
+                if digit is not None:
+                    parts.insert(0, ("not_understood",
+                                     prompts.line("not_understood")))
+                return Turn(ask_parts(db, base_url, language, parts,
+                                      callback_url))
+            answers["birth_plan_ready"] = None
+        else:
+            answers["birth_plan_ready"] = (digit == "1")
         session.answers = answers
         session.state = NEXT_VISIT
         session.transcript = transcript
         db.flush()
-        advice_key = "birth_plan_yes" if digit == "1" else "birth_plan_no"
+        # No advice claiming to know either way when she never answered.
+        advice_key = ("birth_plan_yes" if answers.get("birth_plan_ready")
+                      else "birth_plan_no"
+                      if answers.get("birth_plan_ready") is False else None)
         weeks = _weeks_to_next_visit(db, session)
         weeks_key = prompts.weeks_key(weeks)
 
@@ -424,7 +499,8 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         reported = [k for k, v in (answers.get("danger") or {}).items() if v is True]
         closing_key = "red_closing" if reported else "closing"
 
-        parts = [(advice_key, prompts.line(advice_key))]
+        parts = ([(advice_key, prompts.line(advice_key))] if advice_key
+                 else [])
         if not reported:
             parts += [("next_visit_prefix", prompts.line("next_visit_prefix")),
                       (weeks_key, prompts.line(weeks_key))]
@@ -443,8 +519,19 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
                 finished=True, note="completed")
 
 
+def _give_up(db, session, base_url, language, transcript):
+    """End a call that is not getting anywhere, and say why in the record."""
+    session.state = DONE
+    session.outcome = "no_input"
+    session.transcript = transcript
+    db.flush()
+    return Turn(tell(db, base_url, language, "no_answer",
+                     prompts.line("no_answer")),
+                finished=True, note="too many misdials")
+
+
 def _nutrition_message(db: Session, session: CallSession):
-    """The advice, as (catalogue key, text) so a recording of it can play.
+    """The advice as ([(key, text)], food_key). Writes nothing itself.
 
     This used to return a bare string, which was then passed into the turn with
     no key at all. The catalogue holds a food_<key> line and a recording for
@@ -486,17 +573,14 @@ def _nutrition_message(db: Session, session: CallSession):
         exclude=previous,
     )
     if rec is None:
-        return []
-    if rec.food:
-        session.answers = dict(session.answers or {},
-                               nutrition_food=rec.food["key"])
+        return [], None
 
     # The anaemia tip is a separate catalogue line with its own recording, so
     # it stays a separate part rather than being glued onto the advice.
     parts = [("food_" + rec.food["key"] if rec.food else None, rec.message)]
     if rec.anaemia_tip:
         parts.append((prompts.anaemia_tip_key(rec.anaemia_tip), rec.anaemia_tip))
-    return parts
+    return parts, (rec.food["key"] if rec.food else None)
 
 
 def _weeks_to_next_visit(db: Session, session: CallSession) -> int:

@@ -130,6 +130,13 @@ def validate_emergency(db: Session, emergency: Emergency, user: User) -> Emergen
     the one part of the system that cannot be retracted -- a message already on
     a husband's handset -- was the only part with no clinician in front of it.
     """
+    # Idempotent here, not only in the HTTP handler. This is the function the
+    # docstring calls the gate, and calling it twice sent the family a second
+    # "she needs to go to the health centre now" -- the guard lived one layer
+    # up, so anything else calling the gate directly bypassed it.
+    if emergency.validated_at is not None:
+        return emergency
+
     emergency.status = "validated"
     emergency.validated_by = user.id
     emergency.validated_at = dt.datetime.utcnow()

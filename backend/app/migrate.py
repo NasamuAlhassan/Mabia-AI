@@ -26,6 +26,30 @@ def _sql_type(column) -> str:
         return "TEXT"
 
 
+def _default_value(column):
+    """The value the models would have used, if it is a plain constant."""
+    default = column.default
+    if default is None or getattr(default, "is_callable", False):
+        return None
+    value = getattr(default, "arg", None)
+    if callable(value) or isinstance(value, (dict, list)):
+        return None
+    return value
+
+
+def _backfill(engine: Engine, table_name: str, column) -> int:
+    """Give existing rows the default the models declare. Returns rows touched."""
+    value = _default_value(column)
+    if value is None:
+        return 0
+    with engine.begin() as connection:
+        result = connection.execute(
+            text("UPDATE {} SET {} = :value WHERE {} IS NULL".format(
+                table_name, column.name, column.name)),
+            {"value": value})
+        return result.rowcount or 0
+
+
 def add_missing_columns(engine: Engine) -> list:
     """Bring an existing database up to the current models. Returns what it did."""
     inspector = inspect(engine)
@@ -47,10 +71,22 @@ def add_missing_columns(engine: Engine) -> list:
                 added.append("SKIPPED {}.{} (not-null, no default)".format(
                     table.name, column.name))
                 continue
+
+            # ALTER TABLE ADD COLUMN is always nullable here, because a
+            # SQLAlchemy `default=` is applied in Python on insert and the
+            # database has never heard of it. Adding a NOT NULL column and
+            # calling it done left every existing row holding NULL in a column
+            # the models promise is never null -- Patient.region among them.
+            # So: add it nullable, then backfill the default the models
+            # declare, then report honestly which of the two happened.
             statement = "ALTER TABLE {} ADD COLUMN {} {}".format(
                 table.name, column.name, _sql_type(column))
             with engine.begin() as connection:
                 connection.execute(text(statement))
-            added.append("{}.{}".format(table.name, column.name))
+
+            filled = _backfill(engine, table.name, column)
+            added.append("{}.{}{}".format(
+                table.name, column.name,
+                " (backfilled {} rows)".format(filled) if filled else ""))
 
     return added

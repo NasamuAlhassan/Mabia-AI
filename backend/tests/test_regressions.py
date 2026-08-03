@@ -1033,7 +1033,7 @@ def test_a_file_that_is_not_audio_can_never_count_as_a_voice(db):
         pipeline.write_audio(db, phrase, b"x" * 2000, source="recorded")
 
     ok, reason = pipeline.looks_like_audio(b"\x1a\x45\xdf\xa3" + b"\x00" * 1000)
-    assert ok is False and "phone call" in reason, \
+    assert ok is False and "phone line" in reason, \
         "a browser recording was accepted for a GSM call"
 
 
@@ -1288,18 +1288,23 @@ def test_write_audio_refuses_to_escape_its_root_even_if_called_directly(db):
     """The API whitelists, but the function that touches disk must not rely on it."""
     from app.language import pipeline
     from app.models import Phrase
+    from tests.conftest import wav
 
-    wav = (b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt "
-           + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
-           + (1).to_bytes(2, "little") + (8000).to_bytes(4, "little")
-           + (16000).to_bytes(4, "little") + (2).to_bytes(2, "little")
-           + (16).to_bytes(2, "little") + b"data" + (0).to_bytes(4, "little"))
     rogue = Phrase(language="../../../../tmp", key="pwned", category="danger",
                    source_text="x")
     db.add(rogue)
     db.flush()
-    with pytest.raises(ValueError):
-        pipeline.write_audio(db, rogue, wav)
+
+    # The audio must be valid in every other respect, or the size check
+    # satisfies pytest.raises and the path check is never reached -- which is
+    # exactly what this test used to do.
+    payload = wav()
+    assert pipeline.looks_like_audio(payload)[0], "fixture is not valid audio"
+
+    with pytest.raises(ValueError) as caught:
+        pipeline.write_audio(db, rogue, payload)
+    assert "outside the audio folder" in str(caught.value), \
+        "raised for the wrong reason: {}".format(caught.value)
 
 
 def test_a_file_is_named_after_what_it_actually_is(db):
@@ -1447,8 +1452,9 @@ def test_the_food_advice_can_be_played_as_a_recording(db):
                                 purpose="outreach", language="dagbani")
     db.flush()
 
-    advice = ivr._nutrition_message(db, session)
+    advice, food_key = ivr._nutrition_message(db, session)
     assert advice, "no advice produced at all"
+    assert food_key, "the chosen food was not reported back to the caller"
     key = advice[0][0]
     assert key and key.startswith("food_"), \
         "the advice carries no catalogue key: {!r}".format(advice[0])
@@ -1534,14 +1540,23 @@ def test_an_error_is_never_pinned_on_a_phrase_that_was_never_sent(db, monkeypatc
     monkeypatch.setattr(mms, "synthesise",
                         lambda t, l: (False, b"", "quota exhausted until Tuesday"))
 
+    rows = _pending_kusaal(db, 6)
     out = pipeline.speak_translated(db, "kusaal", limit=6)
     assert out["failed"] >= 2
-    from app.models import Phrase
-    errors = [p.error for p in db.query(Phrase)
-              .filter(Phrase.language == "kusaal", Phrase.error.isnot(None)).all()]
-    # Once the route is blocked, later phrases are told the route was blocked --
-    # not handed the last error from a request they were never part of.
-    assert any("mms" in (e or "") for e in errors)
+    db.expire_all()
+
+    # Exactly one phrase was actually sent -- the quota blocks the route after
+    # it -- and only that one may carry the provider's own words. Every phrase
+    # after it was never sent to anything, so it must be told the route was
+    # blocked rather than handed someone else's error. Asserting `any` here let
+    # the real misattribution through, because the one correctly-attributed
+    # phrase satisfied it single-handedly.
+    sent, unsent = rows[0], rows[1:]
+    assert sent.error == "quota exhausted until Tuesday"
+    for phrase in unsent:
+        assert phrase.error and phrase.error.startswith("mms: "), \
+            "pinned on a phrase from someone else's request: {!r}".format(
+                phrase.error)
 
 
 def test_the_khaya_length_ceiling_is_not_applied_to_the_local_model(db, monkeypatch):
@@ -1749,3 +1764,375 @@ def test_a_worker_can_sign_in_with_the_number_as_she_writes_it(client, db):
                     json={"phone": "0200000001", "pin": "1234"})
     assert r.status_code == 200, r.text
     assert r.json().get("token")
+
+
+# ------------------------------------------------- gaps a mutation test found
+
+
+def test_the_clinically_important_gap_is_filled_before_the_trivial_one(db):
+    """Emptying GROUP_PRIORITY changed nothing that any test noticed.
+
+    Without it the engine fills whichever gap happens to have the cheapest
+    food, so a woman short of flesh foods, dark leaves AND "other fruit" is
+    advised about fruit. The ordering is the difference between advice that
+    addresses anaemia and stunting and advice that addresses neither.
+    """
+    from app.engines.nutrition import MDD_W, Recall, recommend
+
+    # Everything present except one important gap and one trivial one.
+    present = ["grains", "pulses", "nuts_seeds", "dairy", "eggs",
+               "vita_fruit_veg", "other_veg"]
+    recall = Recall(MDD_W, present)
+    assert set(recall.missing) == {"flesh", "dark_leafy", "other_fruit"}
+
+    rec = recommend(recall, month=7, affordability="low")
+    assert rec.group in ("flesh", "dark_leafy"), \
+        "filled the trivial gap first: chose {}".format(rec.group)
+
+    # And the priority table must cover every group in both instruments, or a
+    # missing key silently falls to the default and reorders everything.
+    from app.data.foods import groups_for
+    from app.engines.nutrition import GROUP_PRIORITY, MDD_CHILD
+    for instrument in (MDD_W, MDD_CHILD):
+        for group in groups_for(instrument):
+            assert group in GROUP_PRIORITY, \
+                "{} has no priority, so it sorts as an average gap".format(group)
+
+
+def test_an_oversized_upload_is_refused_before_it_is_held_in_memory(client, db, auth):
+    """Removing the ceiling entirely broke no test."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "kusaal")
+    db.commit()
+    phrase = db.query(Phrase).filter(Phrase.language == "kusaal").first()
+
+    from tests.conftest import wav
+    huge = wav(6 * 1024 * 1024)
+    r = client.post("/api/language/phrases/{}/audio".format(phrase.id),
+                    headers=auth, files={"file": ("big.wav", huge, "audio/wav")})
+    assert r.status_code == 400
+    assert "too large" in r.json()["detail"]
+
+    db.expire_all()
+    assert db.get(Phrase, phrase.id).audio_path is None
+
+
+def test_a_replaced_recording_stops_outranking_the_one_that_replaced_it(db):
+    """Clips are <key>.<ext> and .wav is probed first, so an mp3 take lost."""
+    from app.language import pipeline
+    from app.models import Phrase
+    from app.telephony import ivr
+    from tests.conftest import wav
+
+    pipeline.sync_catalogue(db, "kusaal")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "kusaal", Phrase.key == "closing").first())
+
+    pipeline.write_audio(db, phrase, wav(), source="recorded")
+    assert phrase.audio_path.endswith(".wav")
+
+    pipeline.write_audio(db, phrase, b"ID3\x04\x00" + b"\x00" * 3000,
+                         source="recorded")
+    assert phrase.audio_path.endswith(".mp3")
+    assert ivr._audio_url("", "kusaal", "closing").endswith(".mp3"), \
+        "the superseded take is still what a caller hears"
+
+
+def test_a_format_this_system_cannot_play_is_refused_not_stored(client, db, auth):
+    """FLAC was accepted, counted toward coverage, and never playable."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    ok, reason = pipeline.looks_like_audio(b"fLaC" + b"\x00" * 2000)
+    assert ok is False and "FLAC" in reason
+
+    pipeline.sync_catalogue(db, "kusaal")
+    db.commit()
+    phrase = db.query(Phrase).filter(Phrase.language == "kusaal").first()
+    r = client.post("/api/language/phrases/{}/audio".format(phrase.id),
+                    headers=auth,
+                    files={"file": ("x.flac", b"fLaC" + b"\x00" * 2000,
+                                    "audio/flac")})
+    assert r.status_code == 400
+
+
+def test_correcting_a_translation_takes_the_old_clip_out_of_service(client, db, auth):
+    """The fix landed in the pipeline and not in the sibling endpoint.
+
+    The IVR resolves clips from disk, so nulling the column alone left the
+    rejected wording going down the line -- and the next sync re-adopted it.
+    """
+    from app.language import pipeline
+    from app.models import Phrase
+    from app.telephony import ivr
+    from tests.conftest import wav
+
+    pipeline.sync_catalogue(db, "kusaal")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "kusaal", Phrase.key == "no_answer").first())
+    for source in ("khaya_tts", "mms_tts"):
+        pipeline.write_audio(db, phrase, wav(), source=source)
+        db.commit()
+        assert ivr._audio_url("", "kusaal", "no_answer")
+
+        r = client.put("/api/language/phrases/{}".format(phrase.id), headers=auth,
+                       json={"translated_text": "A corrected wording."})
+        assert r.status_code == 200
+        db.expire_all()
+        assert ivr._audio_url("", "kusaal", "no_answer") is None, \
+            "{} clip of the old wording still plays".format(source)
+
+        pipeline.sync_catalogue(db, "kusaal")
+        db.commit()
+        assert ivr._audio_url("", "kusaal", "no_answer") is None, \
+            "the retired {} clip was re-adopted by the next sync".format(source)
+
+
+def test_the_advice_she_was_given_is_actually_recorded(db):
+    """The helper wrote to session.answers and advance overwrote it.
+
+    Net effect at flush: both the chosen food and the message vanished, so the
+    no-repeat logic read None forever -- the exact failure `exclude` exists to
+    prevent, in the commit that claimed to fix it.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    session.include_diet = True
+    db.flush()
+
+    for digit in [None, "1"] + ["2"] * 20:
+        turn = ivr.advance(db, session, digit, "", "http://x/cb")
+        if session.state in ("birth_plan", "done"):
+            break
+    db.commit()
+    db.expire_all()
+
+    stored = db.get(CallSession, session.id).answers or {}
+    assert stored.get("nutrition_message"), "what she was told was not recorded"
+    assert stored.get("nutrition_food"), "the food chosen was not recorded"
+
+
+def test_she_is_not_given_word_for_word_identical_advice_every_call(db):
+    """`exclude` was passed, read None, and did nothing."""
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Zeinab Mahama").first()
+    heard = []
+    for _ in range(2):
+        session, _ = tel.start_call(db, phone=patient.phone,
+                                    patient_id=patient.id, purpose="outreach",
+                                    language="english")
+        session.include_diet = True
+        db.flush()
+        # Run to the end: the diet event that `exclude` reads is only written
+        # when the call finalises.
+        for digit in [None, "1"] + ["2"] * 20 + ["1"] * 3:
+            turn = ivr.advance(db, session, digit, "", "http://x/cb")
+            if turn.finished:
+                break
+        # What the telephony callback does when the provider reports the call
+        # ended. It is what writes the diet event that `exclude` reads.
+        ivr.finalise(db, session)
+        db.commit()
+        heard.append((db.get(CallSession, session.id).answers or {}).get(
+            "nutrition_food"))
+
+    assert all(heard), "no advice recorded at all: {}".format(heard)
+    assert heard[0] != heard[1], \
+        "identical advice on consecutive contacts: {}".format(heard[0])
+
+
+def test_silence_at_the_birth_plan_is_not_recorded_as_an_answer(db):
+    """The danger block refuses to read silence as "no". This branch did not.
+
+    A dropped keypress was filed as "she has made no birth plan", she was given
+    the advice for that, and the call ended.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Hawa Sulemana").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    db.flush()
+    for digit in [None, "1"] + ["2"] * 8:
+        ivr.advance(db, session, digit, "", "http://x/cb")
+        if session.state == "birth_plan":
+            break
+    assert session.state == "birth_plan"
+
+    first = ivr.advance(db, session, None, "", "http://x/cb")
+    assert not first.finished, "silence ended the call on the first try"
+    assert session.state == "birth_plan", "it moved on without an answer"
+
+    ivr.advance(db, session, None, "", "http://x/cb")
+    last = ivr.advance(db, session, None, "", "http://x/cb")
+    assert last.finished
+    assert (session.answers or {}).get("birth_plan_ready") is None, \
+        "recorded an answer she never gave"
+    assert "birth_plan_no" not in last.xml and "birth_plan_yes" not in last.xml
+    assert "arrange money" not in last.xml.lower(), \
+        "gave the advice for a plan she was never asked about"
+
+
+def test_a_wrong_key_does_not_hold_the_line_open_forever(db):
+    """Silence was capped at two tries. A misdial was capped at nothing."""
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+
+    for _ in range(ivr.MAX_MISDIALS):
+        turn = ivr.advance(db, session, "7", "", "http://x/cb")
+        assert not turn.finished
+        assert "did not get that" in turn.xml, \
+            "she was re-asked with no sign anything went wrong"
+
+    final = ivr.advance(db, session, "7", "", "http://x/cb")
+    assert final.finished, "the call never ends however many keys are pressed"
+
+
+def test_a_woman_who_rings_the_hotline_is_not_asked_if_it_is_a_good_time(db):
+    """She rang because something is wrong, and got the routine check-in.
+
+    Pressing 2 -- "no, not a good time" -- ended her emergency call with "we
+    will call you another time", and she was never told about pressing 9,
+    because the escape hint only played after she had already pressed 1.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="hotline", language="english")
+    db.flush()
+
+    opening = ivr.advance(db, session, None, "", "http://x/cb")
+    text = opening.xml.lower()
+    assert "good time to talk" not in text, "she got the scheduled-contact greeting"
+    assert "press 9" in text, "never told how to reach a person"
+    assert "emergency" in text
+
+    turn = ivr.advance(db, session, "1", "", "http://x/cb")
+    assert not turn.finished
+    assert session.state == "danger", "pressing 1 did not start the questions"
+
+
+def test_a_worker_elsewhere_cannot_read_or_confirm_this_emergency(client, db, auth):
+    """Locking /api/circle left the same data readable through /api/emergencies.
+
+    _payer reads the same table, and /validate fires the family SMS that was
+    deliberately moved behind a clinician.
+    """
+    from app.models import Facility, User as UserModel
+    from app.security import hash_pin
+
+    far = Facility(name="Distant CHPS", community="Nowhere", region="Upper East")
+    db.add(far)
+    db.flush()
+    outsider = UserModel(name="Outsider Two", phone="+233209999881", role="cho",
+                         pin_hash=hash_pin("1234"), facility_id=far.id)
+    db.add(outsider)
+    db.commit()
+    token = client.post("/api/auth/login",
+                        json={"phone": "+233209999881", "pin": "1234"}
+                        ).json()["token"]
+    theirs = {"Authorization": "Bearer {}".format(token)}
+
+    emergency = db.query(Emergency).first()
+    assert emergency is not None
+    for method, path in (("get", ""), ("post", "/validate"), ("post", "/outcome")):
+        url = "/api/emergencies/{}{}".format(emergency.id, path)
+        r = (client.get(url, headers=theirs) if method == "get"
+             else client.post(url, headers=theirs,
+                              json={"outcome": "care_received"}))
+        assert r.status_code == 404, "{} {} -> {}".format(method, path, r.status_code)
+
+
+def test_correcting_a_mistyped_driver_number_does_not_leave_it_on_call(client, db, auth):
+    """There is no delete route, and rank_drivers falls back to the whole table.
+
+    So a number that never belonged to a driver was dialled during other
+    households' emergencies, ahead of the real roster.
+    """
+    patient = db.query(Patient).filter(Patient.name == "Memuna Iddris").first()
+    for number in ("+233201110001", "+233201110002", "+233201110003"):
+        client.put("/api/circle/{}".format(patient.id), headers=auth,
+                   json={"role": "driver", "name": "Yakubu", "phone": number,
+                         "detail": "motorking"})
+    db.expire_all()
+
+    mine = {"+233201110001", "+233201110002", "+233201110003"}
+    live = {d.phone for d in db.query(Driver)
+            .filter(Driver.source == "care_circle",
+                    Driver.available.is_(True)).all()} & mine
+    assert live == {"+233201110003"}, \
+        "typos left on call: {}".format(sorted(live))
+    # The retired rows are kept, not deleted -- one of them may be the real
+    # number and the correction the mistake.
+    assert db.query(Driver).filter(Driver.phone.in_(mine)).count() == 3
+
+
+def test_the_gate_is_idempotent_in_the_function_that_is_the_gate(db):
+    """The guard lived in the HTTP handler, so calling the gate twice re-sent."""
+    from app.models import CareCircleMember, Message
+
+    patient = Patient(name="Twice Test", phone="+233240000821",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    db.add(CareCircleMember(patient_id=patient.id, role="decision_maker",
+                            name="Him", phone="+233240000822"))
+    db.flush()
+
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    worker = db.query(User).filter(User.role == "cho").first()
+    before = db.query(Message).filter(Message.kind == "circle_alert").count()
+    services.validate_emergency(db, emergency, worker)
+    services.validate_emergency(db, emergency, worker)
+    db.flush()
+    assert db.query(Message).filter(
+        Message.kind == "circle_alert").count() == before + 1
+
+
+def test_an_added_column_gets_the_default_the_models_promise(tmp_path):
+    """A SQLAlchemy `default=` is applied in Python; the database never sees it.
+
+    So a not-null column added by ALTER TABLE held NULL on every existing row
+    while the models insisted it could not be null, and the migration reported
+    plain success.
+    """
+    from sqlalchemy import (Column, MetaData, String, Table, create_engine,
+                            text)
+    from app.db import Base
+    from app.migrate import add_missing_columns
+
+    engine = create_engine("sqlite:///{}".format(tmp_path / "old2.db"))
+    old = MetaData()
+    Table("patients", old,
+          Column("id", String, primary_key=True),
+          Column("name", String),
+          Column("phone", String))
+    old.create_all(engine)
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO patients (id, name, phone) "
+                       "VALUES ('1', 'Old Row', '+233240000001')"))
+
+    Base.metadata.create_all(bind=engine)
+    added = add_missing_columns(engine)
+
+    with engine.begin() as c:
+        region = c.execute(text("SELECT region FROM patients")).scalar()
+    assert region == "Northern", \
+        "existing row holds {!r} in a column the models say is never null".format(
+            region)
+    assert any("backfilled" in a for a in added), \
+        "the migration did not report what it filled in"
+    again = [a for a in add_missing_columns(engine) if not a.startswith("SKIPPED")]
+    assert again == [], "not idempotent: {}".format(again)

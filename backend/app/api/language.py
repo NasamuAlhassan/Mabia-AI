@@ -108,7 +108,15 @@ def edit(phrase_id: str, body: EditIn, db: Session = Depends(get_db),
         phrase.reviewed_at = dt.datetime.utcnow()
     # A synthesised clip of the old wording is now wrong. A human recording is
     # left alone -- it may already be correct, and it is not ours to delete.
-    if phrase.audio_source == "khaya_tts":
+    #
+    # The file has to be moved aside, not merely unlinked from the row: the IVR
+    # resolves clips by looking on disk and never reads this column, so nulling
+    # it alone left the rejected wording going down the line, and the next
+    # catalogue sync re-adopted the file as "shipped". That is the bug the
+    # pipeline fixed for stale translations and this sibling endpoint kept.
+    # mms_tts was not covered at all.
+    if phrase.audio_source in ("khaya_tts", "mms_tts"):
+        pipeline._retire_audio(phrase)
         phrase.audio_path = None
         phrase.audio_source = None
     db.commit()

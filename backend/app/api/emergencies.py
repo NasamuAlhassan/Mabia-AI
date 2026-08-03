@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import services
 from ..db import get_db
 from ..models import Dispatch, Emergency, Patient, User
-from ..security import current_user
+from ..security import current_user, patient_in_reach
 
 router = APIRouter(prefix="/api/emergencies", tags=["emergencies"])
 
@@ -18,27 +18,41 @@ def list_emergencies(db: Session = Depends(get_db),
                      user: User = Depends(current_user),
                      open_only: bool = True):
     query = db.query(Emergency)
+    if user.facility_id:
+        query = query.filter(Emergency.facility_id == user.facility_id)
     if open_only:
         query = query.filter(Emergency.status.notin_(["closed", "cancelled"]))
     return [_view(db, e) for e in query.order_by(Emergency.created_at.desc()).all()]
 
 
-@router.get("/{emergency_id}")
-def get_emergency(emergency_id: str, db: Session = Depends(get_db),
-                  user: User = Depends(current_user)):
+def _reachable(db, emergency_id: str, user: User) -> Emergency:
+    """The emergency, if this worker has any business with it.
+
+    Locking /api/circle was not enough: this endpoint reads the same care
+    circle through _payer, and /validate fires the family SMS that was
+    deliberately moved behind a clinician. An outsider could therefore read a
+    household's family names and numbers, and put "she needs to go to the
+    health centre now" on their handsets, without ever touching the endpoint
+    that was secured.
+    """
     emergency = db.get(Emergency, emergency_id)
     if not emergency:
         raise HTTPException(404, "No such emergency")
-    return _view(db, emergency)
+    patient_in_reach(db, emergency.patient_id, user)
+    return emergency
+
+
+@router.get("/{emergency_id}")
+def get_emergency(emergency_id: str, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    return _view(db, _reachable(db, emergency_id, user))
 
 
 @router.post("/{emergency_id}/validate")
 def validate(emergency_id: str, db: Session = Depends(get_db),
              user: User = Depends(current_user)):
     """The human gate. Dispatch begins only after a person confirms."""
-    emergency = db.get(Emergency, emergency_id)
-    if not emergency:
-        raise HTTPException(404, "No such emergency")
+    emergency = _reachable(db, emergency_id, user)
     # Idempotent: a second tap on a slow link returns the same state rather
     # than dispatching a second vehicle.
     if emergency.status != "pending_validation":
@@ -59,9 +73,7 @@ def record_outcome(emergency_id: str, body: OutcomeIn,
                    db: Session = Depends(get_db),
                    user: User = Depends(current_user)):
     """Proof of care, not just advice. This is the only thing that clears a RED."""
-    emergency = db.get(Emergency, emergency_id)
-    if not emergency:
-        raise HTTPException(404, "No such emergency")
+    emergency = _reachable(db, emergency_id, user)
     services.close_emergency(db, emergency, user, body.outcome, body.note)
     db.commit()
     return _view(db, emergency)
@@ -78,6 +90,10 @@ def log_location(dispatch_id: str, body: LocationIn,
     dispatch = db.get(Dispatch, dispatch_id)
     if not dispatch:
         raise HTTPException(404, "No such dispatch")
+    # Reached through its emergency, so the same scoping applies.
+    _reachable(db, dispatch.emergency_id, user)
+    # Reached through its emergency, so the same scoping applies.
+    _reachable(db, dispatch.emergency_id, user)
     services.log_driver_location(db, dispatch, body.note)
     db.commit()
     return {"ok": True, "location_note": dispatch.location_note,
@@ -99,9 +115,7 @@ def respond(dispatch_id: str, accepted: bool, db: Session = Depends(get_db),
 @router.post("/{emergency_id}/next-driver")
 def next_driver(emergency_id: str, db: Session = Depends(get_db),
                 user: User = Depends(current_user)):
-    emergency = db.get(Emergency, emergency_id)
-    if not emergency:
-        raise HTTPException(404, "No such emergency")
+    emergency = _reachable(db, emergency_id, user)
     dispatch = services.offer_next_driver(db, emergency)
     db.commit()
     return {"ok": dispatch is not None,

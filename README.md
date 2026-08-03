@@ -25,7 +25,7 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 - **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 136 tests
+./scripts/test.sh    # 150 tests
 ```
 
 ## Make it call a real phone
@@ -160,7 +160,7 @@ backend/
     telephony/africastalking.py  |  telephony/simulator.py
     services.py        emergencies, dispatch, nurse cascade, no dead ends
     api/               routes, incl. the voice and USSD webhooks
-  tests/               136 tests
+  tests/               150 tests
   audio/<language>/    recorded prompts, served publicly
 frontend/src/pages/    Setup, Worklist, Patient, Enrol, Calls, Nutrition, …
 scripts/               dev.sh, test.sh

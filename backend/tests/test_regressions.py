@@ -23,7 +23,7 @@ from app import services  # noqa: E402
 from app.db import Base, SessionLocal, engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (CallSession, Contact, Dispatch, Driver, Emergency,  # noqa: E402
-                        Event, Message, Patient, PatientState)
+                        Event, Message, Patient, PatientState, User)
 from app.telephony import service as tel  # noqa: E402
 
 
@@ -675,7 +675,18 @@ def test_an_emergency_also_reaches_the_decision_maker(db, client, auth):
     db.flush()
 
     before = db.query(Message).filter(Message.kind == "circle_alert").count()
-    services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.commit()
+
+    # Not yet. The family is the one part of this that cannot be retracted, so
+    # it waits for a human -- a mis-pressed 1 must not put "she needs to go to
+    # the health centre now" on her husband's handset unreviewed.
+    assert db.query(Message).filter(
+        Message.kind == "circle_alert").count() == before, \
+        "the family was alarmed before any clinician looked at it"
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    services.validate_emergency(db, emergency, worker)
     db.commit()
     after = db.query(Message).filter(Message.kind == "circle_alert").count()
     assert after > before, "the person who decides was never told"
@@ -1607,3 +1618,48 @@ def test_a_rejected_recording_stops_being_played(client, db, auth):
     retired = list((pipeline.AUDIO_ROOT / "dagbani").glob("danger_bleeding.*.retired"))
     assert retired
     retired[0].rename(str(retired[0]).replace(".retired", ""))
+
+
+def test_mms_refuses_an_input_it_cannot_finish_inside_a_request(db):
+    """Measured: 11k characters ran 28 CPU-minutes at 29% of memory.
+
+    This is called synchronously from an HTTP handler, so an unbounded input is
+    a request that never returns rather than a slow one.
+    """
+    from app.language import mms
+
+    ok, audio, error = mms.synthesise("ka " * 5000, "kusaal")
+    assert ok is False and not audio
+    assert str(mms.MAX_SYNTHESIS_CHARS) in error
+    assert "Split it into two prompts" in error
+
+    ok, _, error = mms.synthesise("   ", "kusaal")
+    assert ok is False and "nothing to say" in error
+
+
+def test_the_family_is_not_alarmed_before_a_clinician_has_looked(db):
+    """The only irreversible step was the one with no human in front of it."""
+    from app.models import CareCircleMember, Message
+
+    patient = Patient(name="Gate Test", phone="+233240000811",
+                      community="Kpale", region="Northern", consent=True)
+    db.add(patient)
+    db.flush()
+    db.add(CareCircleMember(patient_id=patient.id, role="decision_maker",
+                            name="Her husband", phone="+233240000812"))
+    db.flush()
+
+    sent = lambda: db.query(Message).filter(
+        Message.kind == "circle_alert").count()
+    before = sent()
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    db.flush()
+    assert sent() == before
+
+    # The health worker, though, is told at once -- judging this is her job.
+    assert db.query(Message).filter(Message.kind == "red_alert").count() > 0
+
+    worker = db.query(User).filter(User.role == "cho").first()
+    services.validate_emergency(db, emergency, worker)
+    db.flush()
+    assert sent() == before + 1

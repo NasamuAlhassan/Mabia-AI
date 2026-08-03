@@ -75,7 +75,14 @@ def raise_emergency(db: Session, patient: Patient, reason_codes: List[str],
             patient.name, patient.community, reason_text)
         tel.send_sms(db, cho.phone, body, kind="red_alert", patient_id=patient.id)
 
-    alert_care_circle(db, patient, reason_text)
+    # The family is NOT told yet. validate_emergency is documented as the
+    # human-in-the-loop gate, and that was true of transport and untrue of the
+    # people whose reaction matters most: a mis-pressed 1 on the bleeding
+    # question sent her husband "Amina needs to go to the health centre now"
+    # with no clinician anywhere in the loop. A household that is alarmed twice
+    # for nothing stops responding to the third message, which is the one that
+    # counts. The health worker is told immediately, because judging this is her
+    # job; the family is told the moment she confirms.
     return emergency
 
 
@@ -117,7 +124,12 @@ def alert_care_circle(db: Session, patient: Patient, reason_text: str) -> int:
 
 
 def validate_emergency(db: Session, emergency: Emergency, user: User) -> Emergency:
-    """The human-in-the-loop gate. Nothing dispatches before this."""
+    """The human-in-the-loop gate. Nothing leaves this building before it.
+
+    That now includes the family. Alerting them on an unreviewed keypress meant
+    the one part of the system that cannot be retracted -- a message already on
+    a husband's handset -- was the only part with no clinician in front of it.
+    """
     emergency.status = "validated"
     emergency.validated_by = user.id
     emergency.validated_at = dt.datetime.utcnow()
@@ -125,6 +137,11 @@ def validate_emergency(db: Session, emergency: Emergency, user: User) -> Emergen
     ev.record(db, patient_id=emergency.patient_id, actor_id=user.id,
               event_type=ev.EMERGENCY_VALIDATED,
               payload={"emergency_id": emergency.id})
+
+    patient = db.get(Patient, emergency.patient_id)
+    if patient is not None:
+        alert_care_circle(db, patient,
+                          labels_for(emergency.reason_codes or []) or "danger signs")
     return emergency
 
 

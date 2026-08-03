@@ -26,6 +26,7 @@ stated plainly rather than dressed up.
 """
 import io
 import os
+import threading
 import wave
 from typing import Optional, Tuple
 
@@ -35,6 +36,14 @@ MMS_MODEL = {
 }
 
 _CACHE = {}
+_LOAD_LOCK = threading.Lock()
+
+# Synthesis time grows with input length and there is no GPU here. Measured on
+# a development laptop: 100 characters ~6 s, 400 characters ~30 s, and an
+# 11,000-character input was still running after 28 CPU-minutes at 29% of
+# system memory. This runs inside an HTTP request, so it needs a ceiling that
+# is a refusal rather than a hang.
+MAX_SYNTHESIS_CHARS = 600
 
 
 def available_for(language: str) -> Optional[str]:
@@ -52,15 +61,26 @@ def installed() -> bool:
 
 
 def _load(model_id: str):
-    if model_id in _CACHE:
-        return _CACHE[model_id]
-    from transformers import VitsModel, AutoTokenizer
+    """Load once, under a lock.
 
-    model = VitsModel.from_pretrained(model_id)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model.eval()
-    _CACHE[model_id] = (model, tokenizer)
-    return _CACHE[model_id]
+    Without the lock two concurrent requests each loaded their own copy of the
+    model -- both slow, and double the peak memory. On a 512 MB instance that
+    is the difference between working and being killed.
+    """
+    cached = _CACHE.get(model_id)
+    if cached is not None:
+        return cached
+    with _LOAD_LOCK:
+        cached = _CACHE.get(model_id)
+        if cached is not None:
+            return cached
+        from transformers import VitsModel, AutoTokenizer
+
+        model = VitsModel.from_pretrained(model_id)
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model.eval()
+        _CACHE[model_id] = (model, tokenizer)
+        return _CACHE[model_id]
 
 
 def synthesise(text: str, language: str) -> Tuple[bool, bytes, Optional[str]]:
@@ -78,6 +98,17 @@ def synthesise(text: str, language: str) -> Tuple[bool, bytes, Optional[str]]:
         return False, b"", (
             "torch and transformers are not installed. Run: "
             "pip install torch transformers")
+
+    text = (text or "").strip()
+    if not text:
+        return False, b"", "There is nothing to say."
+    if len(text) > MAX_SYNTHESIS_CHARS:
+        return False, b"", (
+            "That line is {} characters. Anything over {} takes minutes to "
+            "synthesise on a machine with no GPU, so it is refused rather than "
+            "left to run inside a web request. Split it into two prompts -- "
+            "which is better on a phone line anyway.".format(
+                len(text), MAX_SYNTHESIS_CHARS))
 
     try:
         import numpy as np

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, post } from '../api'
 import { outbox, uuid7 } from '../db'
+import CareCircle from '../components/CareCircle'
 
 // Enrolment happens in a compound, standing up, often with no signal.
 //
@@ -98,7 +99,22 @@ export default function Enrol() {
               + 'Her call schedule is created when she syncs.'
             : 'is enrolled. Her eight antenatal calls are scheduled from her due date.'}
         </p>
-        <div className="stack">
+        {/* The care circle asked for here, while the CHO is still sitting in
+            the compound with the family in front of her. Asked later, from an
+            office, it is a phone call to someone who does not know why she is
+            asking -- which is why it sat empty for most households. */}
+        {flash?.id && !flash?.queued && (
+          <>
+            <p className="muted tiny" style={{ marginTop: 16 }}>
+              Before you leave the compound: who decides, who drives, who pays,
+              who to ring. This is the difference between a referral that
+              happens and one that does not.
+            </p>
+            <CareCircle patientId={flash.id} />
+          </>
+        )}
+
+        <div className="stack" style={{ marginTop: 16 }}>
           <button className="primary wide" onClick={another}>
             Enrol another in {f.community}
           </button>

@@ -4,6 +4,7 @@ import { ApiError, post } from '../api'
 import { BackLink } from '../App'
 import { outbox } from '../db'
 import CriticalAction from '../lib/CriticalAction'
+import CareCircle from '../components/CareCircle'
 import { useData, Failed, Skeleton } from '../lib/data'
 import { reasonLabel } from './Worklist'
 
@@ -81,6 +82,7 @@ export default function Patient() {
           <button className="primary wide" onClick={() => setMode('visit')}>
             Record a visit
           </button>
+          <CareCircle patientId={p.id} />
           <History patient={p} />
         </>
       ) : (

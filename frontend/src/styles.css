@@ -559,3 +559,21 @@ button.small   { min-height: 38px; padding: var(--s1) var(--s3); font-size: .88r
 .circle-member .delay {
   font-size: .74rem; color: var(--ochre-ink); margin-top: var(--s1);
 }
+
+/* The shell is a row; the content column has to be allowed to grow. Without
+ * min-width:0 a flex child refuses to shrink below its content and the column
+ * collapses to a sliver with dead space beside it. */
+.shell > .app { flex: 1 1 auto; min-width: 0; }
+
+@media (min-width: 900px) {
+  /* The rail carries the identity, so the top bar stops repeating it and
+     becomes what it should be: who is signed in, and the sun toggle. */
+  .topbar { background: var(--card); color: var(--ink);
+            border-bottom: 1px solid var(--line); }
+  .topbar .brand { display: none; }
+  .topbar button { background: var(--bg); color: var(--ink);
+                   border: 1px solid var(--line-strong); }
+  .main { margin: 0; max-width: 1040px; }
+  .emergency-band { margin-left: calc(var(--s5) * -1);
+                    margin-right: calc(var(--s5) * -1); }
+}

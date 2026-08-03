@@ -213,20 +213,38 @@ written to be checkable.
 | Emergency validation, driver cascade, outcome logging | **Working** |
 | CHO worklist, enrolment, visit recording, facility board | **Working** |
 | Outreach scheduler (run-due endpoint + daily cron) | **Working** |
-| Khaya translation: Dagbani, all 79 lines | **Working**, shipped in the repo |
-| Khaya translation: Kusaal 18/79, Frafra 0/79 | **Blocked** — free-tier quota, replenishes mid-August |
+| Khaya translation: Dagbani, 72/83 lines | **Working**, shipped in the repo. 11 stale after the English was rewritten — kept and flagged, not deleted |
+| Khaya translation: Kusaal 18/83, Frafra 0/83 | **Blocked** — free-tier quota, replenishes mid-August |
 | Khaya translation: Gonja | **Not possible** — no model exists; Gonja is Guang, not Mabia |
-| Local-language *audio* | **Not built.** Khaya's TTS is down upstream. A real call still plays English |
+| Local-language *audio* | **Partly.** Kusaal 17/45 core lines via Meta MMS running locally; Dagbani 2/45. Khaya's TTS is down upstream and has no Dagbani model regardless. Anything unrecorded plays English |
 | Speech recognition | **Not started.** The keypad path is complete and stands alone |
 | USSD worklist retrieval | Built; needs a live shared code to dial |
 | Predictive models, DHIMS2 integration | Roadmap, and deliberately so — see below |
 
-**On the audio, plainly:** the platform has real Dagbani *wording* and no Dagbani
-*voice*. Khaya translates correctly and its speech service returns an
-unavailable page. So today a handset hears English. The Voice screen reports
-this as “100% translated, 0% spoken” rather than a green tick, and the fix is
-either the service returning or a speaker sitting down with the recording list —
-which the app generates, in priority order, and can record into directly.
+**On the audio, plainly:** the platform has real Dagbani *wording* and almost no
+Dagbani *voice* — two recordings against the forty-five lines every outreach call
+plays. Khaya translates correctly and its speech service returns an unavailable
+page; Meta's MMS runs locally and has a model for Kusaal and for none of the
+other three. So today most of a call is English, and the Voice screen says so
+rather than showing a green tick.
+
+The fallback is deliberate, and getting it wrong taught us something worth
+writing down. `<Say>` is the provider's **English** text-to-speech voice; there
+is no Dagbani, Kusaal, Frafra or Gonja voice behind it. An early build handed it
+the Dagbani translation, reasoning that her language beats English. It does not:
+what comes out is an English speaker failing at Dagbani orthography, which is
+less use to the woman on the line than plain English. The rule is now explicit
+and tested — a recording in her language is **played**, and anything without one
+is **said** in English until a recording exists. The translation is what we
+record and what we display. It is never what we speak.
+
+That is also why coverage is reported as two numbers. The whole catalogue
+includes thirty-four food messages of which a call plays one, and eight
+next-visit intervals of which it plays one; averaging those with the greeting
+every call opens with produces a figure that means nothing. The badge shows the
+share of the lines every call actually walks through, and the fix for it is
+either Khaya returning or a speaker sitting down with the recording list — which
+the app generates, in priority order, and can record into directly.
 
 **On the AI, plainly:** the triage and nutrition engines are deterministic rule
 engines, not models. That is a choice, not a gap. A rule that fires because a

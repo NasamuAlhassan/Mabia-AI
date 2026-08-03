@@ -94,8 +94,12 @@ def variants(raw):
     unreachable by any spelling its owner could type, which for the users table
     is a permanent lockout.
     """
+    # Deliberately NOT the raw string. normalise() re-derives every spelling of
+    # a parseable Ghanaian number, so including the input verbatim adds nothing
+    # -- and this set goes straight into an authentication IN clause, which is
+    # the one place not to carry arbitrary caller-supplied text.
     canonical = normalise(raw)
-    out = {(raw or "").strip()}
+    out = set()
     if canonical:
         out.add(canonical)
         if canonical.startswith("+" + GHANA):
@@ -103,4 +107,8 @@ def variants(raw):
             out.add("0" + national)
             out.add(GHANA + national)
             out.add(national)
+        else:
+            # A number we cannot parse as Ghanaian -- a foreign one -- can only
+            # be matched as it normalises, never as it was typed.
+            out.add(canonical)
     return {v for v in out if v}

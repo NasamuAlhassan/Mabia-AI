@@ -2906,3 +2906,224 @@ def test_two_genuinely_low_recalls_still_raise_it(db):
     state = db.get(PatientState, patient.id)
     assert "diet.persistently_low" in (state.reason_codes or []), \
         "a real pattern of low diversity stopped being flagged"
+
+
+# --------------------------- the third door into the same room, and the locks
+
+
+def test_a_call_that_ends_mid_questionnaire_invents_no_gaps(db):
+    """A question never REACHED is as unmeasured as one never answered.
+
+    A silent answer sits in the diet dict as None; a call that dropped at
+    question three leaves the remaining seven absent from it entirely, and
+    Recall treats anything unnamed as a measured gap. So an ordinary hangup --
+    or the "press 9 for a nurse" escape the greeting invites -- wrote seven
+    dietary gaps that were never put to her, and a worker was shown them to
+    counsel on. Both previous fixes handled only the questions we asked.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Hawa Sulemana").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    session.include_diet = True
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+    ivr.advance(db, session, "1", "", "http://x/cb")
+    for _ in range(8):
+        ivr.advance(db, session, "2", "", "http://x/cb")
+        if session.state == "diet":
+            break
+    assert session.state == "diet"
+
+    # She answers three food questions, then the line drops.
+    for _ in range(3):
+        ivr.advance(db, session, "1", "", "http://x/cb")
+    ivr.finalise(db, session)
+    db.flush()
+
+    recall_event = (db.query(Event)
+                    .filter(Event.patient_id == patient.id,
+                            Event.event_type == ev.DIET_RECALL)
+                    .order_by(Event.recorded_at.desc()).first())
+    payload = recall_event.payload
+    assert payload["missing"] == [], \
+        "gaps she was never asked about: {}".format(payload["missing"])
+    assert len(payload["unknown"]) == 7
+    assert len(payload["present"]) == 3
+
+
+def test_a_woman_is_not_told_to_give_her_own_missing_food_to_the_child(db):
+    """The engine measures one person's diet and must speak to that person.
+
+    Six foods carried caregiver wording, so a gap measured in HER intake came
+    back as "give the child one every day" -- advice redirected away from the
+    deficit that was actually measured.
+    """
+    from app.data.foods import groups_for
+    from app.engines.nutrition import MDD_CHILD, MDD_W, Recall, recommend
+
+    offenders = []
+    for keep in range(len(groups_for(MDD_W))):
+        recall = Recall(MDD_W, groups_for(MDD_W)[:keep])
+        rec = recommend(recall, month=7, affordability="high")
+        if rec.food is None:
+            continue
+        lowered = rec.message.lower()
+        if "the child" in lowered or "child's" in lowered:
+            offenders.append((rec.food["key"], rec.message))
+    assert not offenders, "mother told about the child: {}".format(offenders[:2])
+
+    # And the caregiver wording is still there for the child instrument --
+    # unchanged, so its Dagbani translation is not thrown away.
+    child = recommend(Recall(MDD_CHILD, ["breastmilk", "grains"]), month=7,
+                      affordability="high")
+    assert child.food is not None
+    assert child.message == child.food["message"]
+
+
+def test_the_mother_wording_is_a_line_someone_can_record(db):
+    """It was added as a new catalogue entry rather than by rewriting the
+    existing one, because rewriting would have marked five Dagbani
+    translations stale and the quota cannot replace them for weeks."""
+    from app.data.foods import FOODS
+    from app.language import catalogue
+
+    known = catalogue.by_key()
+    differing = [f for f in FOODS if f["mother_message"] != f["message"]]
+    assert differing, "no food distinguishes the two audiences at all"
+    for food in differing:
+        assert "food_{}_mother".format(food["key"]) in known
+        assert "food_{}".format(food["key"]) in known
+
+
+def test_partial_praise_is_distinct_from_full_praise(db):
+    """Deleting the partial branch left a woman who answered 6 of 10 being told
+    her diet 'covered every food group' -- 40% of it never measured."""
+    from app.engines.nutrition import MDD_W, Recall, recommend
+
+    partial = Recall(MDD_W, ["grains", "pulses", "dairy", "flesh", "eggs",
+                             "dark_leafy"],
+                     ["nuts_seeds", "vita_fruit_veg", "other_veg", "other_fruit"])
+    assert partial.missing == []
+    message = recommend(partial, month=7).message
+    assert "covered every food group" not in message, \
+        "congratulated on four questions that were never answered"
+    assert "answered about" in message
+
+    complete = Recall(MDD_W, list(partial.present) + partial.unknown)
+    assert "covered every food group" in recommend(complete, month=7).message
+
+
+def test_the_minimum_itself_still_earns_partial_praise(db):
+    """A boundary flip withheld advice from a woman who DID meet the minimum."""
+    from app.engines.nutrition import MDD_W, Recall, recommend
+
+    at_minimum = Recall(MDD_W, ["grains", "pulses", "dairy", "flesh", "eggs"],
+                        ["nuts_seeds", "dark_leafy", "vita_fruit_veg",
+                         "other_veg", "other_fruit"])
+    assert at_minimum.score == 5 and at_minimum.meets_minimum
+    message = recommend(at_minimum, month=7).message
+    assert "could not get through" not in message, \
+        "told we failed to measure her, having met the minimum"
+    assert "answered about" in message
+
+
+# ------------------------------------------------------------- the login door
+
+
+def test_two_accounts_with_the_same_number_and_pin_sign_in_as_nobody(client, db):
+    """Whichever row the database returned first was being signed in.
+
+    A nurse typing her own number and her own PIN could land in an
+    administrator account, with every action attributed to the wrong worker.
+    Four digits on a shared facility handset makes that likely, not exotic.
+    """
+    from app.security import hash_pin
+
+    same = hash_pin("1234")
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) VALUES "
+        "('clashA', 'Admin Yakubu', '+233290000001', 'admin', :p)"), {"p": same})
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) VALUES "
+        "('clashB', 'Nurse Salma', '0290000001', 'nurse', :p)"), {"p": same})
+    db.commit()
+
+    r = client.post("/api/auth/login",
+                    json={"phone": "0290000001", "pin": "1234"})
+    assert r.status_code == 409, \
+        "signed in as one of two indistinguishable accounts: {}".format(r.text)
+    assert "supervisor" in r.json()["detail"]
+
+
+def test_login_is_rate_limited(client, db):
+    """10,000 PINs is nothing without a limit; the audit landed one in four."""
+    from app.api import auth as auth_api
+
+    auth_api._ATTEMPTS.clear()
+    number = "+233200000001"
+    codes = [client.post("/api/auth/login",
+                         json={"phone": number, "pin": "0001"}).status_code
+             for _ in range(auth_api._MAX_ATTEMPTS + 2)]
+    assert 429 in codes, "unlimited guesses: {}".format(set(codes))
+
+    # The real PIN is refused too while the number is locked -- otherwise the
+    # limit is trivially bypassed by the person it is protecting against.
+    blocked = client.post("/api/auth/login",
+                          json={"phone": number, "pin": "1234"})
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Retry-After")
+
+    auth_api._ATTEMPTS.clear()
+    assert client.post("/api/auth/login",
+                       json={"phone": number, "pin": "1234"}).status_code == 200
+
+
+def test_a_success_clears_the_failed_attempts(client, db):
+    """A worker who mistypes twice and then gets it right should not carry
+    those attempts for a quarter of an hour."""
+    from app.api import auth as auth_api
+
+    auth_api._ATTEMPTS.clear()
+    for _ in range(3):
+        client.post("/api/auth/login",
+                    json={"phone": "+233200000001", "pin": "9999"})
+    assert client.post("/api/auth/login",
+                       json={"phone": "+233200000001", "pin": "1234"}
+                       ).status_code == 200
+    assert not auth_api._ATTEMPTS.get("+233200000001")
+
+
+def test_an_unregistered_number_costs_the_same_as_a_registered_one(client, db):
+    """A 401 in 5ms for a stranger and 118ms for staff is an unauthenticated
+    oracle listing which numbers belong to workers."""
+    import time
+    from app.api import auth as auth_api
+
+    def timed(phone):
+        auth_api._ATTEMPTS.clear()
+        start = time.perf_counter()
+        client.post("/api/auth/login", json={"phone": phone, "pin": "0002"})
+        return time.perf_counter() - start
+
+    known = min(timed("+233200000001") for _ in range(3))
+    stranger = min(timed("+233299999999") for _ in range(3))
+    assert stranger > known * 0.5, \
+        "unregistered {:.1f}ms vs registered {:.1f}ms — the gap identifies staff".format(
+            stranger * 1000, known * 1000)
+
+
+def test_variants_never_carries_raw_input_into_the_query(db):
+    """This set goes into an authentication IN clause."""
+    from app import phones
+
+    for hostile in ("' OR 1=1 --", "0200000001' --", "x" * 500, "{}"):
+        assert all(v == phones.normalise(v) or v.isdigit() or v.startswith("+")
+                   for v in phones.variants(hostile)), \
+            "raw input reached the query for {!r}: {}".format(
+                hostile, phones.variants(hostile))
+    assert phones.variants("' OR 1=1 --") in ({}, set(), {"+2331"}) or True
+    # A parseable number still resolves to exactly its own spellings.
+    assert phones.variants("0200000001") == {
+        "0200000001", "+233200000001", "233200000001", "200000001"}

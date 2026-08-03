@@ -25,7 +25,7 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 - **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 179 backend, 6 frontend
+./scripts/test.sh    # 189 backend, 6 frontend
 ```
 
 ## Make it call a real phone
@@ -164,7 +164,7 @@ backend/
     telephony/africastalking.py  |  telephony/simulator.py
     services.py        emergencies, dispatch, nurse cascade, no dead ends
     api/               routes, incl. the voice and USSD webhooks
-  tests/               179 tests
+  tests/               189 tests
   audio/<language>/    recorded prompts, served publicly
 frontend/src/pages/    Setup, Worklist, Patient, Enrol, Calls, Nutrition, …
 scripts/               dev.sh, test.sh
@@ -217,8 +217,8 @@ written to be checkable.
 | Emergency validation, driver cascade, outcome logging | **Working** |
 | CHO worklist, enrolment, visit recording, facility board | **Working** |
 | Outreach scheduler (run-due endpoint + daily cron) | **Working** |
-| Khaya translation: Dagbani, 72/83 lines | **Working**, shipped in the repo. 11 stale after the English was rewritten — kept and flagged, not deleted |
-| Khaya translation: Kusaal 18/83, Frafra 0/83 | **Blocked** — free-tier quota, replenishes mid-August |
+| Khaya translation: Dagbani, 72/88 lines | **Working**, shipped in the repo. 11 stale after the English was rewritten — kept and flagged, not deleted |
+| Khaya translation: Kusaal 18/88, Frafra 0/88 | **Blocked** — free-tier quota, replenishes mid-August |
 | Khaya translation: Gonja | **Not possible** — no model exists; Gonja is Guang, not Mabia |
 | Local-language *audio* | **Partly.** Kusaal 17/45 core lines via Meta MMS running locally; Dagbani 2/45. Khaya's TTS is down upstream and has no Dagbani model regardless. Anything unrecorded plays English |
 | Speech recognition | **Not started.** The keypad path is complete and stands alone |

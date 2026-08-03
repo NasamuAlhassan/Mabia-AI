@@ -653,7 +653,14 @@ def _nutrition_message(db: Session, session: CallSession):
 
     # The anaemia tip is a separate catalogue line with its own recording, so
     # it stays a separate part rather than being glued onto the advice.
-    parts = [("food_" + rec.food["key"] if rec.food else None, rec.message)]
+    # The mother wording is its own catalogue line where it differs, so it has
+    # its own key and can carry its own recording.
+    food_key = None
+    if rec.food:
+        food_key = "food_" + rec.food["key"]
+        if rec.message == rec.food.get("mother_message") != rec.food["message"]:
+            food_key += "_mother"
+    parts = [(food_key, rec.message)]
     if rec.anaemia_tip:
         parts.append((prompts.anaemia_tip_key(rec.anaemia_tip), rec.anaemia_tip))
     return parts, (rec.food["key"] if rec.food else None)
@@ -706,9 +713,24 @@ def finalise(db: Session, session: CallSession) -> Tuple[str, list]:
     diet = answers.get("diet")
     if session.patient_id and diet:
         instrument = answers.get("instrument", MDD_W)
+        # A question never REACHED is as unmeasured as one never answered, and
+        # the two arrived here by different routes: a silent answer is in this
+        # dict as None, while a call that dropped at question three leaves the
+        # remaining seven absent from it entirely. Recall treats anything not
+        # named as a measured gap, so an ordinary hangup -- or the "press 9 for
+        # a nurse" escape the greeting invites -- wrote seven dietary gaps that
+        # were never put to her, and a worker was shown them to counsel on.
+        #
+        # This is the third door into the same room. The first was silence
+        # recorded as "did not eat"; the second was silence emptying `missing`
+        # and triggering praise. Both fixes handled the questions we asked.
+        from ..engines.nutrition import groups_for
+        asked = set(diet)
+        never_asked = [g for g in groups_for(instrument) if g not in asked]
         recall = Recall(instrument,
                         [g for g, eaten in diet.items() if eaten is True],
-                        [g for g, eaten in diet.items() if eaten is None])
+                        [g for g, eaten in diet.items() if eaten is None]
+                        + never_asked)
         ev.append(db, patient_id=session.patient_id, actor_id="system",
                   event_type=ev.DIET_RECALL,
                   payload={"instrument": instrument, "score": recall.score,

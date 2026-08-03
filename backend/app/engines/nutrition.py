@@ -282,7 +282,11 @@ def recommend(
     if anaemia_focus:
         tip = ANAEMIA_TIPS[0] if not best["vitamin_c"] else ANAEMIA_TIPS[1]
 
-    return Recommendation(best, group, season, best["message"], reason,
+    # Speak to whoever was measured. The women's instrument measures her own
+    # intake; the child indicator measures the child's.
+    spoken = (best["message"] if recall.instrument == MDD_CHILD
+              else best["mother_message"])
+    return Recommendation(best, group, season, spoken, reason,
                           alternatives, tip)
 
 

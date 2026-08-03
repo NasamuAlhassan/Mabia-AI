@@ -55,6 +55,12 @@ def catalogue() -> List[Dict[str, str]]:
     for food in FOODS:
         out.append({"key": "food_" + food["key"], "category": "food",
                     "text": food["message"]})
+        # Only where the wording for the woman herself genuinely differs from
+        # the caregiver wording. Emitting a duplicate line for the other
+        # twenty-eight foods would be work for a recordist and nothing else.
+        if food["mother_message"] != food["message"]:
+            out.append({"key": "food_" + food["key"] + "_mother",
+                        "category": "food", "text": food["mother_message"]})
 
     # The anaemia tips ride alongside the food advice on the same turn. They
     # were the only spoken lines in the system with no catalogue entry, so they

@@ -77,9 +77,25 @@ YEAR = list(range(1, 13))
 
 
 def _food(key, name, months, tier, source, w_groups, c_groups, message,
-          regions=ALL, iron=False, vitamin_c=False, local=None):
+          regions=ALL, iron=False, vitamin_c=False, local=None,
+          mother_message=None):
+    """One food.
+
+    `message` is what a caregiver hears about a child. `mother_message` is the
+    same advice addressed to the woman herself, and is only given where the two
+    genuinely differ -- six of these foods were worded for a caregiver, so a
+    gap measured in HER intake came back as "give the child one every day",
+    which points the advice away from the deficit that was measured.
+
+    The original wording is kept as `message` on purpose. Rewriting it in place
+    would have marked its Dagbani translation stale, and with the quota
+    exhausted a translation cannot be regenerated for weeks -- so a correctness
+    fix would have cost five recorded lines. The mother wording is a new line
+    to translate instead of a lost one.
+    """
     return {
         "key": key, "name": name, "months": months, "tier": tier,
+        "mother_message": mother_message or message,
         "source": source, "w_groups": w_groups, "c_groups": c_groups,
         "message": message, "regions": regions, "iron_rich": iron,
         "vitamin_c": vitamin_c, "local_names": local or {},
@@ -103,7 +119,9 @@ FOODS = [
           "Shea fruit is ripe and free. Eat the sweet pulp."),
     _food("dawadawa_fruit", "Dawadawa fruit pulp", [4, 5, 6], "free", "gathered",
           ["other_fruit"], ["other_fruit_veg"],
-          "The pulp inside a dawadawa pod is sweet and free. Give it to the child.", vitamin_c=True),
+          "The pulp inside a dawadawa pod is sweet and free. Give it to the child.",
+          mother_message="The pulp inside a dawadawa pod is sweet and free. "
+                         "Eat it as it is.", vitamin_c=True),
     _food("wild_greens", "Ayoyo and aleefu leaves", [6, 7, 8, 9], "free", "gathered",
           ["dark_leafy"], ["vita_fruit_veg"],
           "Ayoyo and aleefu are growing now. Cook a handful into the soup — they "
@@ -179,7 +197,9 @@ FOODS = [
           ["other_veg"], ["other_fruit_veg"], "Garden eggs are cheap this season."),
     _food("mango", "Mango", [3, 4, 5, 6], "free", "gathered",
           ["vita_fruit_veg"], ["vita_fruit_veg"],
-          "Mangoes are ripe. Give the child one every day while they last.", vitamin_c=True),
+          "Mangoes are ripe. Give the child one every day while they last.",
+          mother_message="Mangoes are ripe. Have one every day while they "
+                         "last.", vitamin_c=True),
     _food("baobab_fruit", "Baobab fruit", [12, 1, 2, 3, 4], "free", "gathered",
           ["other_fruit"], ["other_fruit_veg"],
           "Mix baobab fruit powder into water or porridge. It is very high in "
@@ -187,6 +207,8 @@ FOODS = [
     _food("pawpaw", "Pawpaw", YEAR, "low", "grown",
           ["vita_fruit_veg"], ["vita_fruit_veg"],
           "Pawpaw is available. Half a pawpaw covers the child's vitamin A.",
+          mother_message="Pawpaw is available. Half a pawpaw covers your "
+                         "vitamin A for the day.",
           vitamin_c=True),
     _food("tomato", "Tomato", [11, 12, 1, 2, 3], "medium", "purchased",
           ["other_veg"], ["other_fruit_veg"],
@@ -201,7 +223,8 @@ FOODS = [
     # --- animal source, costlier -----------------------------------------
     _food("eggs", "Eggs", YEAR, "medium", "purchased",
           ["eggs"], ["eggs"],
-          "One egg for the child, most days, if you can manage it."),
+          "One egg for the child, most days, if you can manage it.",
+          mother_message="One egg most days, if you can manage it."),
     _food("fresh_fish", "Fresh fish", [6, 7, 8, 9, 10], "medium", "purchased",
           ["flesh"], ["flesh"], "Fresh fish is available in the rains."),
     _food("guinea_fowl", "Guinea fowl", YEAR, "high", "purchased",
@@ -210,7 +233,9 @@ FOODS = [
           ["flesh"], ["flesh"], "Goat meat when there is money for it."),
     _food("milk_fermented", "Fermented milk (burkina)", [6, 7, 8, 9, 10], "medium", "purchased",
           ["dairy"], ["dairy"],
-          "Fermented milk is around during the rains — good for the child."),
+          "Fermented milk is around during the rains — good for the child.",
+          mother_message="Fermented milk is around during the rains — good "
+                         "for you and the baby."),
     _food("milk_fresh", "Fresh cow milk", [6, 7, 8, 9, 10], "medium", "purchased",
           ["dairy"], ["dairy"], "Fresh milk while the cattle are producing."),
 ]

@@ -113,6 +113,12 @@ export default function Voice() {
               <div className="n">{here.needs_recording}</div>
               <div className="l">to record</div>
             </div>
+            {here.stale > 0 && (
+              <div className="count amber">
+                <div className="n">{here.stale}</div>
+                <div className="l">stale</div>
+              </div>
+            )}
           </div>
 
           {here.note && <div className="notice warn">{here.note}</div>}
@@ -131,6 +137,17 @@ export default function Voice() {
               </span>
             ))}
           </div>
+
+          {here.stale > 0 && (
+            <div className="notice warn">
+              {here.stale} {here.stale === 1 ? 'line renders' : 'lines render'}{' '}
+              English that has since been rewritten. The old wording is kept and
+              still playable, and they are queued to be translated again when
+              credits return — but they are not counted as current, because a
+              translation of a sentence nobody says any more is not a
+              translation.
+            </div>
+          )}
 
           {here.too_long?.length > 0 && (
             <div className="notice warn">
@@ -231,9 +248,10 @@ function PhraseRow({ phrase, onChange }) {
     } catch (e) { setError(e.message) }
   }
 
-  const state = phrase.audio_url
-    ? (phrase.audio_source === 'recorded' ? 'recorded' : 'synthesised')
-    : phrase.translated ? 'needs a voice' : phrase.status
+  const state = phrase.status === 'stale' ? 'stale'
+    : phrase.audio_url
+      ? (phrase.audio_source === 'recorded' ? 'recorded' : 'synthesised')
+      : phrase.translated ? 'needs a voice' : phrase.status
 
   return (
     <div className="card tight">
@@ -241,7 +259,9 @@ function PhraseRow({ phrase, onChange }) {
         <code className="tiny muted">{phrase.key}</code>
         <span className="spacer" />
         <span className={`badge ${
-          state === 'recorded' ? 'green' : state === 'needs a voice' ? 'amber' : 'plain'
+          state === 'recorded' ? 'green'
+            : state === 'stale' ? 'red'
+            : state === 'needs a voice' ? 'amber' : 'plain'
         }`}>{state}</span>
       </div>
 

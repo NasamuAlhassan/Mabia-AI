@@ -43,6 +43,7 @@ def phrases(language: str, db: Session = Depends(get_db),
     return {"language": language, "count": len(rows), "phrases": [{
         "id": p.id, "key": p.key, "category": p.category,
         "english": p.source_text, "translated": p.translated_text,
+        "previous": p.previous_text,
         "status": p.status, "error": p.error, "provider": p.provider,
         "audio_url": "/audio/" + p.audio_path if p.audio_path else None,
         "audio_source": p.audio_source, "audio_bytes": p.audio_bytes,

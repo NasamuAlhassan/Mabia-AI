@@ -223,7 +223,26 @@ def _retire_audio(phrase: Phrase) -> None:
     try:
         current = AUDIO_ROOT / phrase.audio_path
         if current.exists():
-            current.rename(current.with_suffix(current.suffix + ".retired"))
+            _retire_file(current)
+    except OSError:
+        pass
+
+
+def _retire_file(path) -> None:
+    """Move a clip out of service without landing on an earlier one.
+
+    rename() overwrites on POSIX, so retiring a second take of the same key
+    silently destroyed the first -- in the function whose whole reason for
+    renaming rather than deleting is that a recording is a real human voice
+    that cannot be regenerated for weeks.
+    """
+    target = path.with_suffix(path.suffix + ".retired")
+    n = 2
+    while target.exists():
+        target = path.with_suffix("{}.retired.{}".format(path.suffix, n))
+        n += 1
+    try:
+        path.rename(target)
     except OSError:
         pass
 
@@ -411,12 +430,14 @@ def write_audio(db: Session, phrase: Phrase, data: bytes,
     # take used to land beside the wav it replaced -- and _audio_url probes
     # .wav first, so the superseded recording kept playing. Any extension for
     # this key goes, not just the one the row happens to name.
+    # Including a take with the same extension. That case was skipped, so the
+    # commonest replacement of all -- a second WAV over the first -- destroyed
+    # the previous recording outright, in the code whose whole reason for
+    # renaming rather than deleting is that a human voice cannot be regenerated
+    # for weeks.
     for stale in path.parent.glob(phrase.key + ".*"):
-        if stale.suffix != ".retired" and stale != path:
-            try:
-                stale.rename(stale.with_suffix(stale.suffix + ".retired"))
-            except OSError:
-                pass
+        if ".retired" not in stale.name:
+            _retire_file(stale)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)

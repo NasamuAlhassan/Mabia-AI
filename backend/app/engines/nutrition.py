@@ -23,11 +23,21 @@ MDD_CHILD = "mdd_child"
 class Recall:
     """The result of asking the food-group questions."""
 
-    def __init__(self, instrument: str, present: List[str]):
+    def __init__(self, instrument: str, present: List[str],
+                 unknown: Optional[List[str]] = None):
         self.instrument = instrument
         all_groups = groups_for(instrument)
         self.present = [g for g in present if g in all_groups]
-        self.missing = [g for g in all_groups if g not in self.present]
+        # A question she never answered is not a food group she did not eat.
+        # Folding the two together invented gaps out of dropped keypresses and
+        # then advised her about them -- confident guidance derived from
+        # silence. The score stays conservative (unknown does not count as
+        # eaten, which is the standard reading) but advice is only ever given
+        # about a gap that was actually measured.
+        self.unknown = [g for g in (unknown or []) if g in all_groups
+                        and g not in self.present]
+        self.missing = [g for g in all_groups
+                        if g not in self.present and g not in self.unknown]
         self.score = len(self.present)
         self.total = len(all_groups)
         self.minimum = MDDW_MINIMUM if instrument == MDD_W else CHILD_MINIMUM
@@ -46,6 +56,7 @@ class Recall:
             "meets_minimum": self.meets_minimum,
             "present": self.present,
             "missing": self.missing,
+            "unknown": self.unknown,
             "missing_labels": [labels[g] for g in self.missing],
         }
 

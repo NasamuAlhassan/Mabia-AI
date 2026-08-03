@@ -225,6 +225,7 @@ _EXTRA_LABELS = {
     "access.remote": "Far from care",
     "emergency.open": "Emergency still open",
     "hotline.nurse_unreachable": "Could not reach a nurse",
+    "call.hotline_unfinished": "Rang the hotline; we could not take her answers",
 }
 
 

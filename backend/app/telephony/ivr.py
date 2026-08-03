@@ -360,11 +360,22 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             # denials clear previously affirmed signs.
             session.transcript = transcript
             db.flush()
-            _, again = asked[session.cursor]
-            return Turn(ask_parts(db, base_url, language, [
-                ("not_understood", prompts.line("not_understood")),
-                ("danger_" + key, again),
-            ], callback_url))
+            # A stray key must never be read as a denial, so this re-asks
+            # rather than recording anything -- but it was the one block with
+            # no ceiling at all, and it is both the longest and the one the
+            # hotline feeds straight into. Out of tries, the question is left
+            # unanswered and the call moves on; her earlier answers are kept.
+            tries = "misdials_danger_" + key
+            answers[tries] = answers.get(tries, 0) + 1
+            if answers[tries] <= MAX_MISDIALS:
+                session.answers = answers
+                _, again = asked[session.cursor]
+                db.flush()
+                return Turn(ask_parts(db, base_url, language, [
+                    ("not_understood", prompts.line("not_understood")),
+                    ("danger_" + key, again),
+                ], callback_url))
+            answers.setdefault("danger", {})[key] = None
         else:
             # Re-ask once before giving up on the question.
             tries = answers.setdefault("retries", {})
@@ -412,19 +423,28 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         qs = diet_questions_for(session)
         group = qs[session.cursor]["group"]
         remember("diet_" + group, digit)
-        if digit not in ("1", "2"):
-            misdials = answers.get("misdials", 0) + 1
-            answers["misdials"] = misdials
-            session.answers = answers
-            session.transcript = transcript
-            db.flush()
-            if misdials > MAX_MISDIALS:
-                return _give_up(db, session, base_url, language, transcript)
-            return Turn(ask_parts(db, base_url, language, [
-                ("not_understood", prompts.line("not_understood")),
-                ("diet_" + group, qs[session.cursor]["prompt"]),
-            ], callback_url))
-        answers.setdefault("diet", {})[group] = (digit == "1")
+        # Silence and a wrong key are different events, and neither is a
+        # reason to end the call. Counting silence as a misdial meant four
+        # unanswered diet questions on a bad line hung up -- and took the danger
+        # signs she had already given with it. An unasked food group is a gap in
+        # the score, not an emergency; the call moves on either way.
+        answered = digit in ("1", "2")
+        if not answered and digit is not None:
+            tries = "misdials_diet_" + group
+            answers[tries] = answers.get(tries, 0) + 1
+            if answers[tries] <= MAX_MISDIALS:
+                session.answers = answers
+                session.transcript = transcript
+                db.flush()
+                return Turn(ask_parts(db, base_url, language, [
+                    ("not_understood", prompts.line("not_understood")),
+                    ("diet_" + group, qs[session.cursor]["prompt"]),
+                ], callback_url))
+
+        # None means "we do not know", which is not the same as "she did not
+        # eat it" -- recording False would invent a dietary gap and then advise
+        # her about it.
+        answers.setdefault("diet", {})[group] = (digit == "1") if answered else None
         nxt = session.cursor + 1
         if nxt < len(qs):
             session.cursor = nxt
@@ -520,14 +540,51 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
 
 
 def _give_up(db, session, base_url, language, transcript):
-    """End a call that is not getting anywhere, and say why in the record."""
+    """End a call that is not getting anywhere -- without dropping her.
+
+    Two things went wrong here. The outcome was recorded as "no_input", and the
+    after-call handler skips finalisation for that, so everything she HAD
+    already told us was discarded: a woman who pressed 1 for bleeding and then
+    went quiet raised no emergency at all. And a caller who dialled the
+    emergency hotline was hung up on with "your health worker will visit you"
+    while nothing whatsoever notified that health worker.
+
+    The outcome is now "incomplete", which finalises. A hotline caller is
+    escalated rather than dismissed, because she rang us.
+    """
     session.state = DONE
-    session.outcome = "no_input"
+    session.outcome = "incomplete"
     session.transcript = transcript
     db.flush()
+
+    if session.purpose == "hotline":
+        _escalate_unfinished_hotline(db, session)
+        return Turn(tell(db, base_url, language, "red_closing",
+                         prompts.line("red_closing")),
+                    finished=True, note="hotline call could not be completed")
+
     return Turn(tell(db, base_url, language, "no_answer",
                      prompts.line("no_answer")),
                 finished=True, note="too many misdials")
+
+
+def _escalate_unfinished_hotline(db, session) -> None:
+    """She rang the emergency line and we could not take her answers.
+
+    No call may ever dead-end -- that rule is in the README and it was being
+    broken by the newest code in the file. A caller we cannot triage is a
+    caller a human has to ring back, so this raises the flag rather than
+    logging "unreachable" and forgetting her.
+    """
+    from .. import services
+    from ..models import Patient
+
+    if not session.patient_id:
+        return
+    patient = db.get(Patient, session.patient_id)
+    if patient is None:
+        return
+    services.raise_emergency(db, patient, ["call.hotline_unfinished"], "hotline")
 
 
 def _nutrition_message(db: Session, session: CallSession):
@@ -541,9 +598,10 @@ def _nutrition_message(db: Session, session: CallSession):
     """
     patient = db.get(Patient, session.patient_id) if session.patient_id else None
     diet = (session.answers or {}).get("diet", {})
-    present = [group for group, eaten in diet.items() if eaten]
+    present = [group for group, eaten in diet.items() if eaten is True]
+    unknown = [group for group, eaten in diet.items() if eaten is None]
     instrument = (session.answers or {}).get("instrument", MDD_W)
-    recall = Recall(instrument, present)
+    recall = Recall(instrument, present, unknown)
 
     anaemia = False
     if patient is not None:
@@ -630,11 +688,14 @@ def finalise(db: Session, session: CallSession) -> Tuple[str, list]:
     diet = answers.get("diet")
     if session.patient_id and diet:
         instrument = answers.get("instrument", MDD_W)
-        recall = Recall(instrument, [g for g, eaten in diet.items() if eaten])
+        recall = Recall(instrument,
+                        [g for g, eaten in diet.items() if eaten is True],
+                        [g for g, eaten in diet.items() if eaten is None])
         ev.append(db, patient_id=session.patient_id, actor_id="system",
                   event_type=ev.DIET_RECALL,
                   payload={"instrument": instrument, "score": recall.score,
                            "total": recall.total, "missing": recall.missing,
+                           "unknown": recall.unknown,
                            "present": recall.present,
                            "food_key": answers.get("nutrition_food"),
                            "message": answers.get("nutrition_message")})

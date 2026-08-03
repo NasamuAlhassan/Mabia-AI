@@ -225,7 +225,14 @@ def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> N
     """Everything expensive, once, off the call's critical path."""
     if session.purpose not in ("outreach", "hotline"):
         return
-    if session.outcome in ("failed", "no_input"):
+    # A call that answered nothing is an attempt, and nothing more. But a call
+    # that ended badly AFTER she told us something is not: the guard used to
+    # cover both, so a woman who pressed 1 for bleeding and then went quiet had
+    # her answer discarded and no emergency raised. Whether anything was
+    # collected decides this, not how the call ended.
+    collected = bool((session.answers or {}).get("danger")
+                     or (session.answers or {}).get("diet"))
+    if session.outcome in ("failed", "no_input") and not collected:
         if session.patient_id:
             ev.record(db, patient_id=session.patient_id, actor_id="system",
                       event_type=ev.CALL_ATTEMPTED,

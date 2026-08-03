@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Emergency, Facility, Patient, User
-from ..security import current_user
+from ..security import current_user, patient_in_reach
 
 router = APIRouter(prefix="/api/facility", tags=["facility"])
 
@@ -43,6 +43,11 @@ def arrived(emergency_id: str, db: Session = Depends(get_db),
     emergency = db.get(Emergency, emergency_id)
     if not emergency:
         raise HTTPException(404, "No such emergency")
+    # The facility receiving her, or the worker responsible for her. Anyone
+    # else marking a woman as arrived puts a false end on the one timestamp
+    # the Three Delays funnel is measured from.
+    if emergency.facility_id and user.facility_id != emergency.facility_id:
+        patient_in_reach(db, emergency.patient_id, user)
     emergency.arrived_at = dt.datetime.utcnow()
     emergency.status = "arrived"
     db.commit()

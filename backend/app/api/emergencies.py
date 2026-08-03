@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import services
@@ -17,9 +18,17 @@ router = APIRouter(prefix="/api/emergencies", tags=["emergencies"])
 def list_emergencies(db: Session = Depends(get_db),
                      user: User = Depends(current_user),
                      open_only: bool = True):
-    query = db.query(Emergency)
-    if user.facility_id:
-        query = query.filter(Emergency.facility_id == user.facility_id)
+    # The same rule as patient_in_reach, not a narrower one. Filtering on
+    # facility alone hid REDs for the worker's OWN assigned patients whenever
+    # the patient sat at another facility (a referral) or at none -- so a case
+    # she is responsible for never appeared on the list she works from, while
+    # being perfectly openable by its URL.
+    query = (db.query(Emergency).outerjoin(Patient, Emergency.patient_id == Patient.id)
+               .filter(or_(Patient.assigned_cho_id == user.id,
+                           Patient.facility_id == user.facility_id
+                           if user.facility_id else False,
+                           Patient.assigned_cho_id.is_(None)
+                           & Patient.facility_id.is_(None))))
     if open_only:
         query = query.filter(Emergency.status.notin_(["closed", "cancelled"]))
     return [_view(db, e) for e in query.order_by(Emergency.created_at.desc()).all()]
@@ -92,8 +101,6 @@ def log_location(dispatch_id: str, body: LocationIn,
         raise HTTPException(404, "No such dispatch")
     # Reached through its emergency, so the same scoping applies.
     _reachable(db, dispatch.emergency_id, user)
-    # Reached through its emergency, so the same scoping applies.
-    _reachable(db, dispatch.emergency_id, user)
     services.log_driver_location(db, dispatch, body.note)
     db.commit()
     return {"ok": True, "location_note": dispatch.location_note,
@@ -107,6 +114,7 @@ def respond(dispatch_id: str, accepted: bool, db: Session = Depends(get_db),
     dispatch = db.get(Dispatch, dispatch_id)
     if not dispatch:
         raise HTTPException(404, "No such dispatch")
+    _reachable(db, dispatch.emergency_id, user)
     services.driver_responded(db, dispatch, accepted)
     db.commit()
     return {"ok": True, "status": dispatch.status}

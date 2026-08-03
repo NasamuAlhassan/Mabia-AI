@@ -12,6 +12,7 @@ from ..db import get_db
 from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
 from .. import phones
+from ..security import patient_in_reach
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -122,9 +123,10 @@ def list_patients(db: Session = Depends(get_db), user: User = Depends(current_us
 @router.get("/{patient_id}")
 def detail(patient_id: str, db: Session = Depends(get_db),
            user: User = Depends(current_user)):
-    patient = db.get(Patient, patient_id)
-    if not patient:
-        raise HTTPException(404, "No such patient")
+    # The record itself, not just the care circle hanging off it. Locking the
+    # circle and leaving this open meant her name, her phone number and her
+    # whole visit history were one URL away from any account.
+    patient = patient_in_reach(db, patient_id, user)
     state = db.get(PatientState, patient_id)
     history = ev.load(db, patient_id)
     emergencies = (db.query(Emergency)

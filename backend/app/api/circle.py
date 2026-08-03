@@ -155,11 +155,19 @@ def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember,
     patient = db.get(Patient, patient_id)
     existing = db.query(Driver).filter(Driver.phone == member.phone).first()
     if existing is not None:
-        # Already in the roster, and nothing here may edit him. Flipping
-        # available back to True was the worst of it: a driver who had marked
-        # himself off duty was put back on call by any worker saving his number
-        # on any patient's form, and would then be rung for an emergency he had
-        # said he could not take.
+        # A registered driver is never edited from a household form. Flipping
+        # available back to True put a man who had marked himself off duty back
+        # on call, and he would then be rung for an emergency he had said he
+        # could not take.
+        #
+        # A row this endpoint created is different: it is retired when the
+        # household stops naming it, so it has to come back when the household
+        # names it again. Otherwise correcting a typo back to the right number
+        # left her with a confirmed driver on screen and nobody in the cascade
+        # -- which is worse than the duplicate rows this retirement was added
+        # to prevent.
+        if existing.source == "care_circle" and not existing.available:
+            existing.available = True
         return
     db.add(Driver(
         name=member.name,

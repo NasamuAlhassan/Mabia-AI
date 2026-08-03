@@ -12,6 +12,7 @@ So the whole audio tree is copied into a temporary directory once per session
 and everything is pointed at the copy. Tests can write, retire and delete
 freely; the repository's recordings are never opened for writing.
 """
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -47,9 +48,15 @@ def _recordings_are_untouched():
 
 
 def _snapshot():
+    """Content hashes, not sizes.
+
+    Comparing sizes caught a rename or a deletion and nothing else: a take
+    overwritten by another of the same length, or wiped to silence in place,
+    passed cleanly. These are the only recordings anyone has made.
+    """
     if not REAL_AUDIO.exists():
         return {}
-    return {str(p.relative_to(REAL_AUDIO)): p.stat().st_size
+    return {str(p.relative_to(REAL_AUDIO)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(REAL_AUDIO.rglob("*")) if p.is_file()}
 
 

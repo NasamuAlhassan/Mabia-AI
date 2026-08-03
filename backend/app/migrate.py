@@ -84,9 +84,63 @@ def add_missing_columns(engine: Engine) -> list:
             with engine.begin() as connection:
                 connection.execute(text(statement))
 
+            fillable = _default_value(column) is not None
             filled = _backfill(engine, table.name, column)
-            added.append("{}.{}{}".format(
-                table.name, column.name,
-                " (backfilled {} rows)".format(filled) if filled else ""))
+            if filled:
+                note = " (backfilled {} rows)".format(filled)
+            elif column.default is not None and not fillable:
+                # A callable or a dict/list default cannot be expressed as a
+                # constant UPDATE. Saying so is the point: reporting it the
+                # same way as "nothing needed filling" is how a column full of
+                # NULLs passes for a clean migration.
+                note = " (default is computed; existing rows left NULL)"
+            else:
+                note = ""
+            added.append("{}.{}{}".format(table.name, column.name, note))
 
+    added += normalise_stored_phones(engine)
     return added
+
+
+def normalise_stored_phones(engine: Engine) -> list:
+    """Bring numbers written before normalisation existed into one form.
+
+    The ORM listener only fires on insert and update, so rows already on disk
+    keep whatever spelling they were saved with until something happens to
+    touch them. Every lookup compares against the normalised form, so those
+    rows are invisible to it -- and worse than invisible: saving the same
+    handset through a form creates a SECOND driver row, and the dispatch
+    cascade then rings the same man twice, burning a position in a queue that
+    exists for a bleeding woman.
+    """
+    from .models import _PHONE_COLUMNS
+    from .phones import normalise
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    changed = []
+
+    for table, columns in _PHONE_COLUMNS.items():
+        if table not in tables:
+            continue
+        have = {c["name"] for c in inspector.get_columns(table)}
+        for column in columns:
+            if column not in have:
+                continue
+            with engine.begin() as connection:
+                rows = connection.execute(text(
+                    "SELECT rowid, {0} FROM {1} WHERE {0} IS NOT NULL AND {0} != ''"
+                    .format(column, table))).fetchall()
+                fixed = 0
+                for rowid, value in rows:
+                    canonical = normalise(value)
+                    if canonical and canonical != value:
+                        connection.execute(
+                            text("UPDATE {0} SET {1} = :v WHERE rowid = :r"
+                                 .format(table, column)),
+                            {"v": canonical, "r": rowid})
+                        fixed += 1
+            if fixed:
+                changed.append("{}.{} (normalised {} numbers)".format(
+                    table, column, fixed))
+    return changed

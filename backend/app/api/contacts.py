@@ -16,6 +16,7 @@ from .. import services
 from ..db import get_db
 from ..models import Contact, Patient, User
 from ..security import current_user
+from ..security import patient_in_reach
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -62,6 +63,7 @@ def list_due(db: Session = Depends(get_db), user: User = Depends(current_user)):
 @router.get("/schedule/{patient_id}")
 def schedule(patient_id: str, db: Session = Depends(get_db),
              user: User = Depends(current_user)):
+    patient_in_reach(db, patient_id, user)
     rows = (db.query(Contact)
               .filter(Contact.patient_id == patient_id)
               .order_by(Contact.due_date).all())

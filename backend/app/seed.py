@@ -65,23 +65,30 @@ def seed(db: Session) -> None:
     ])
     db.flush()
 
+    # Distance and road are part of every one of these, because they are part
+    # of the clinical decision: the same danger sign is seen tonight or this
+    # week depending on how long it takes her to get there. A demo caseload
+    # with the field blank teaches the wrong lesson about what the engine
+    # actually weighs.
     people = [
-        # (name, phone, community, weeks pregnant, affordability, taboos)
-        ("Amina Fuseini", "+233240000001", "Kpale", 32, "low", ["eggs"]),
-        ("Zeinab Mahama", "+233240000002", "Kpale", 24, "low", []),
-        ("Hawa Sulemana", "+233240000003", "Kpale", 36, "medium", []),
-        ("Memuna Iddris", "+233240000004", "Sagnarigu", 12, "low", []),
-        ("Rahma Osman", "+233240000005", "Kpale", 28, "low", ["goat"]),
+        # (name, phone, community, weeks, affordability, taboos, minutes, road)
+        ("Amina Fuseini", "+233240000001", "Kpale", 32, "low", ["eggs"], 95, "poor"),
+        ("Zeinab Mahama", "+233240000002", "Kpale", 24, "low", [], 40, "fair"),
+        ("Hawa Sulemana", "+233240000003", "Kpale", 36, "medium", [], 55, "poor"),
+        ("Memuna Iddris", "+233240000004", "Sagnarigu", 12, "low", [], 20, "good"),
+        ("Rahma Osman", "+233240000005", "Kpale", 28, "low", ["goat"], 70, "fair"),
     ]
 
     created = []
-    for name, phone, community, weeks, affordability, taboos in people:
+    for (name, phone, community, weeks, affordability, taboos,
+         minutes, road) in people:
         edd = today + dt.timedelta(weeks=(40 - weeks))
         patient = Patient(
             name=name, phone=phone, secondary_phone="+233240000099",
             language="dagbani", community=community, region="Northern",
             lmp=edd - dt.timedelta(days=280), edd=edd,
             affordability=affordability, taboos=taboos, consent=True,
+            minutes_to_facility=minutes, road_condition=road,
             consent_at=dt.datetime.utcnow(), assigned_cho_id=cho.id,
             facility_id=kpale.id)
         db.add(patient)

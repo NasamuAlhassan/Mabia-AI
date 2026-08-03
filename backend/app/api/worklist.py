@@ -3,6 +3,8 @@
 Sorting is trivial and the value is high: it is the difference between a worker
 opening the app and knowing who to see, and opening the app and reading a list.
 """
+import datetime as dt
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,19 @@ from ..events import UNMEASURED_AFTER
 router = APIRouter(prefix="/api/worklist", tags=["worklist"])
 
 ORDER = {RED: 0, AMBER: 1, GREEN: 2}
+
+
+def weeks_pregnant(patient):
+    """Weeks of gestation today, from the expected delivery date.
+
+    Forty weeks minus what remains. Absent an EDD there is no honest answer,
+    and None says so rather than guessing zero.
+    """
+    if not patient.edd:
+        return None
+    remaining = (patient.edd - dt.date.today()).days
+    weeks = 40 - round(remaining / 7)
+    return weeks if 0 <= weeks <= 45 else None
 
 
 @router.get("")
@@ -39,6 +54,12 @@ def worklist(db: Session = Depends(get_db), user: User = Depends(current_user),
             "muac_child": state.muac_child if state else None,
             "unreachable": state.consecutive_unreachable if state else 0,
             "last_contact_at": state.last_contact_at if state else None,
+            # The two facts a worker sorts a list of pregnant women by, and
+            # neither was here: how far along she is, and how far away she is.
+            "weeks_pregnant": weeks_pregnant(patient),
+            "minutes_to_facility": patient.minutes_to_facility,
+            "road_condition": patient.road_condition,
+            "edd": patient.edd,
         })
     rows.sort(key=lambda r: (ORDER.get(r["risk_level"], 3), r["name"]))
     return {"counts": {level: sum(1 for r in rows if r["risk_level"] == level)

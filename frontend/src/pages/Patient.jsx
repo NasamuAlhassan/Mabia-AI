@@ -6,8 +6,9 @@ import { outbox } from '../db'
 import CriticalAction from '../lib/CriticalAction'
 import CareCircle from '../components/CareCircle'
 import { useData, Failed, Skeleton } from '../lib/data'
-import { reasonLabel } from './Worklist'
+import { reasonLabel } from './Dashboard'
 import { display as phone } from '../phone'
+import * as I from '../components/Icons'
 
 // Three states per sign, not two.
 //
@@ -32,67 +33,248 @@ export default function Patient() {
   const { id } = useParams()
   const { data: p, error, loading, reload } = useData(`/api/patients/${id}`)
   const [mode, setMode] = useState('read')
+  const [note, setNote] = useState('')
 
   if (loading && !p) return <Skeleton rows={4} />
   if (!p) return <><BackLink /><Failed error={error} onRetry={reload} /></>
 
   const open = (p.emergencies || []).find(e => e.status !== 'closed')
+  const initials = (p.name || '').split(' ').filter(Boolean)
+    .slice(0, 2).map(w => w[0]).join('').toUpperCase()
+  const RISK = { red: 'HIGH RISK', amber: 'MEDIUM RISK', green: 'LOW RISK' }
+  const PILL = { red: 'high', amber: 'medium', green: 'low' }
+
+  if (mode === 'visit') {
+    return (
+      <>
+        <BackLink to={`/patients/${p.id}`} label={`Back to ${p.name}`} />
+        <VisitFlow patient={p} onDone={() => { setMode('read'); reload() }}
+                   onCancel={() => setMode('read')} />
+      </>
+    )
+  }
 
   return (
     <>
       <BackLink />
 
-      <div className="row">
-        <h1 style={{ margin: 0 }}>{p.name}</h1>
-        <span className="spacer" />
-        <span className={`badge ${p.risk_level}`}>
-          {p.risk_level === 'red' ? 'See now'
-            : p.risk_level === 'amber' ? 'See today' : 'Routine'}
+      <div className="person-head">
+        <span className="avatar">{initials || '—'}</span>
+        <span>
+          <span className="row" style={{ gap: 12 }}>
+            <h1>{p.name}</h1>
+            <span className={`pill ${PILL[p.risk_level] || 'stable'}`}>
+              {RISK[p.risk_level] || 'NOT ASSESSED'}
+            </span>
+          </span>
+          <div className="meta">
+            {p.community}
+            {p.weeks_pregnant != null && ` · ${p.weeks_pregnant} weeks pregnant`}
+            {` · speaks ${p.language}`}
+            {p.minutes_to_facility != null && ` · ${p.minutes_to_facility} min from care`}
+          </div>
         </span>
       </div>
-      <p className="muted">
-        {p.community} · speaks {p.language} ·{' '}
-        <a href={`tel:${p.phone}`}>{phone(p.phone)}</a>
-        {p.edd && <> · due {new Date(p.edd).toLocaleDateString()}</>}
-      </p>
 
-      {p.reason_codes?.length > 0 && (
-        <div className="card" style={{
-          borderLeft: `6px solid var(--${p.risk_level === 'red' ? 'emergency' : 'ochre'})`,
-        }}>
-          <h2>Why she is flagged</h2>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {p.reason_codes.map(r => <li key={r}>{reasonLabel(r)}</li>)}
-          </ul>
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.05fr) minmax(0,1.1fr) minmax(0,.85fr)' }}>
+        {/* 1. Who she is */}
+        <div>
+          <div className="card">
+            <div className="card-head"><I.Note size={16} /> 1. Patient information</div>
+            <div className="card-body" style={{ paddingTop: 4, paddingBottom: 4 }}>
+              <div className="factrow">
+                <I.Baby /><span className="k">Weeks pregnant</span>
+                <span className="spacer" />
+                <span className="v">
+                  {p.weeks_pregnant != null ? `${p.weeks_pregnant} weeks` : 'Not recorded'}
+                </span>
+              </div>
+              <div className="factrow">
+                <I.Pin /><span className="k">Location</span>
+                <span className="spacer" />
+                <span className="v">
+                  {p.community || '—'}
+                  <small>
+                    {p.minutes_to_facility != null
+                      ? `${p.minutes_to_facility} min from care`
+                      : 'Distance not recorded'}
+                  </small>
+                </span>
+              </div>
+              <div className="factrow">
+                <I.Phone /><span className="k">Phone</span>
+                <span className="spacer" />
+                <span className="v">
+                  <a href={`tel:${p.phone}`}>{phone(p.phone)}</a>
+                </span>
+              </div>
+              <div className="factrow">
+                <I.Calendar size={16} /><span className="k">Expected delivery</span>
+                <span className="spacer" />
+                <span className="v">
+                  {p.edd ? new Date(p.edd).toLocaleDateString() : 'Not recorded'}
+                </span>
+              </div>
+              <div className="factrow">
+                <I.Card /><span className="k">Household budget</span>
+                <span className="spacer" />
+                <span className="v" style={{ textTransform: 'capitalize' }}>
+                  {p.affordability || 'low'}
+                </span>
+              </div>
+              <div className="factrow">
+                <I.Clock /><span className="k">Last contact</span>
+                <span className="spacer" />
+                <span className="v">
+                  {p.last_contact_at
+                    ? new Date(p.last_contact_at).toLocaleDateString() : 'Never'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><I.Circle size={16} /> 3. History</div>
+            <div className="card-body"><History patient={p} /></div>
+          </div>
         </div>
-      )}
 
-      {open && (
-        <div className="card" style={{ borderLeft: '6px solid var(--emergency)' }}>
-          <h2>Open emergency</h2>
-          <p className="muted tiny">
-            Status: {open.status.replace(/_/g, ' ')}. It stays open until you
-            record what happened.
-          </p>
-          <Outcome id={open.id} onDone={reload} />
+        {/* 2. Why she is where she is */}
+        <div>
+          <div className={`card ${p.risk_level === 'red' ? 'riskpanel' : ''}`}>
+            <div className="card-head"><I.Warning size={16} /> 2. Risk status</div>
+            <div className="card-body">
+              <div className="riskbig">
+                {p.risk_level === 'red' && <I.Warning size={38} />}
+                <span className="lvl" style={p.risk_level !== 'red'
+                  ? { color: p.risk_level === 'amber' ? 'var(--medium)' : 'var(--low)' } : undefined}>
+                  {RISK[p.risk_level] || 'NOT ASSESSED'}
+                </span>
+              </div>
+
+              {p.reason_codes?.length > 0 ? (
+                <>
+                  <div className="riskwhy"
+                       style={p.risk_level !== 'red' ? { color: 'var(--ink)' } : undefined}>
+                    Why is she at this level?
+                  </div>
+                  <ul>{p.reason_codes.map(r => <li key={r}>{reasonLabel(r)}</li>)}</ul>
+                </>
+              ) : (
+                <p className="muted tiny" style={{ margin: 0 }}>
+                  Nothing has been reported that needs a visit. This is a
+                  result, not an absence of data.
+                </p>
+              )}
+
+              <div className="tiny muted" style={{ marginTop: 14 }}>
+                Every reason here came from something she said or something a
+                worker measured. Nothing is inferred.
+              </div>
+            </div>
+          </div>
+
+          {open && (
+            <div className="card">
+              <div className="card-head alarm">
+                <I.Warning size={16} /> Open emergency
+              </div>
+              <div className="card-body">
+                <p className="muted tiny" style={{ marginTop: 0 }}>
+                  Status: {open.status.replace(/_/g, ' ')}. It stays open until a
+                  person records what actually happened.
+                </p>
+                {open.alert_failed && (
+                  <div className="notice bad tiny" style={{ marginBottom: 12 }}>
+                    The text message to her health worker did not send. Reach
+                    her another way.
+                  </div>
+                )}
+                <Outcome id={open.id} onDone={reload} />
+              </div>
+            </div>
+          )}
+
         </div>
-      )}
 
-      {mode === 'read' ? (
-        <>
-          <button className="primary wide" onClick={() => setMode('visit')}>
-            Record a visit
-          </button>
-          <CareCircle patientId={p.id} />
-          <History patient={p} />
-        </>
-      ) : (
-        <VisitFlow patient={p} onDone={() => { setMode('read'); reload() }}
-                   onCancel={() => setMode('read')} />
-      )}
+        {/* 3. What she can do about it */}
+        <div>
+          <div className="card">
+            <div className="card-head">Actions</div>
+            <div className="card-body stack">
+              <button className="primary wide" onClick={() => setMode('visit')}>
+                <I.Note size={16} /> Record a visit
+              </button>
+              <button className="wide" onClick={() => window.location.assign(`tel:${p.phone}`)}>
+                <I.Phone size={16} /> Call her
+              </button>
+              <button className="wide" onClick={() => window.location.assign('/visits/facility')}>
+                <I.Car size={16} /> Facility board
+              </button>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><I.Note size={16} /> Quick note</div>
+            <div className="card-body stack">
+              <textarea rows={4} value={note} aria-label="Quick note"
+                        placeholder="Add a note for the next visit…"
+                        onChange={e => setNote(e.target.value)} />
+              <p className="muted tiny" style={{ margin: 0 }}>
+                Notes are saved with a visit, so they carry the date and who
+                wrote them. Record a visit to keep this.
+              </p>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><I.Chart size={16} /> Key summary</div>
+            <div className="card-body" style={{ paddingTop: 4, paddingBottom: 4 }}>
+              <div className="summary-row">
+                <span className="k">Risk level</span><span className="spacer" />
+                <span className={`pill ${PILL[p.risk_level] || 'stable'}`}>
+                  {(p.risk_level || '—').toUpperCase()}
+                </span>
+              </div>
+              <div className="summary-row">
+                <span className="k">Weeks pregnant</span><span className="spacer" />
+                <span className="v">{p.weeks_pregnant ?? '—'}</span>
+              </div>
+              <div className="summary-row">
+                <span className="k">Distance to facility</span><span className="spacer" />
+                <span className="v">
+                  {p.minutes_to_facility != null
+                    ? `${p.minutes_to_facility} min` : 'Not recorded'}
+                </span>
+              </div>
+              <div className="summary-row">
+                <span className="k">Dietary diversity</span><span className="spacer" />
+                <span className="v">
+                  {p.mdd_score != null
+                    ? `${p.mdd_score} of ${p.mdd_instrument === 'mdd_child' ? 8 : 10}`
+                    : 'Not measured'}
+                </span>
+              </div>
+              <div className="summary-row">
+                <span className="k">Iron and folic acid</span><span className="spacer" />
+                <span className="v">
+                  {p.ifa_adherent === true ? 'Taking'
+                    : p.ifa_adherent === false ? 'Not taking' : 'Not asked'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head"><I.People size={16} /> 4. Care circle</div>
+        <div className="card-body"><CareCircle patientId={p.id} /></div>
+      </div>
     </>
   )
 }
+
 
 function VisitFlow({ patient, onDone, onCancel }) {
   const [answers, setAnswers] = useState({})     // key -> true | false (absent = not asked)
@@ -259,25 +441,25 @@ function Outcome({ id, onDone }) {
 }
 
 function History({ patient }) {
+  // No card and no heading of its own: it is rendered inside one now.
   return (
-    <div className="card">
-      <h2>History</h2>
-      <p className="muted tiny">
+    <>
+      <p className="muted tiny" style={{ marginTop: 0 }}>
         {patient.state?.events_folded ?? 0} records, newest first. Nothing here
         has ever been overwritten.
       </p>
       <div className="timeline">
         {[...(patient.events || [])].reverse().map(e => (
-          <div className="event" key={e.event_id}>
-            <div className="head">{title(e)}</div>
-            <div className="muted tiny">
+          <div className="item" key={e.event_id}>
+            <div style={{ fontWeight: 600 }}>{title(e)}</div>
+            <div className="when">
               {new Date(e.occurred_at).toLocaleString()}
             </div>
-            {detail(e) && <div className="tiny">{detail(e)}</div>}
+            {detail(e) && <div className="tiny muted">{detail(e)}</div>}
           </div>
         ))}
       </div>
-    </div>
+    </>
   )
 }
 

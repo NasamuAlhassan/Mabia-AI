@@ -3,30 +3,31 @@ import {
   BrowserRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate,
 } from 'react-router-dom'
 
-import { post, token } from './api'
+import { post, token, user as storedUser } from './api'
 import { flush, outbox } from './db'
 import { ago } from './lib/data'
+import * as I from './components/Icons'
 
+import Dashboard from './pages/Dashboard'
 import Enrol from './pages/Enrol'
 import Facility from './pages/Facility'
 import Login from './pages/Login'
-import Metrics from './pages/Metrics'
-import Nutrition from './pages/Nutrition'
 import Patient from './pages/Patient'
-import Setup from './pages/Setup'
-import Simulator from './pages/Simulator'
-import Voice from './pages/Voice'
-import Worklist from './pages/Worklist'
+import Patients from './pages/Patients'
+import Reports from './pages/Reports'
+import Settings from './pages/Settings'
+import Visits from './pages/Visits'
 
-// Five slots, and the developer tool is not one of them. The simulator moved
-// under Setup: a CHO has no reason to answer a simulated handset, and giving it
-// a fifth of her primary navigation told a judge the app was a demo harness.
-const TABS = [
-  { to: '/worklist', glyph: '≡', label: 'Worklist' },
-  { to: '/enrol', glyph: '+', label: 'Enrol' },
-  { to: '/nutrition', glyph: '◍', label: 'Nutrition' },
-  { to: '/voice', glyph: '◉', label: 'Voice' },
-  { to: '/setup', glyph: '⚙', label: 'Setup' },
+// The five the mockups name, in their order. Everything else this platform can
+// do lives inside one of them: the nutrition view and the indicators under
+// Reports, the language workbench and the call simulator under Settings. A
+// worker's primary navigation is not the place to advertise a developer tool.
+const NAV = [
+  { to: '/dashboard', label: 'Dashboard', Icon: I.Home },
+  { to: '/patients', label: 'Patients', Icon: I.People },
+  { to: '/visits', label: 'Visits', Icon: I.Calendar },
+  { to: '/reports', label: 'Reports', Icon: I.Chart },
+  { to: '/settings', label: 'Settings', Icon: I.Gear },
 ]
 
 const SUN_KEY = 'mabia.sun'
@@ -40,11 +41,14 @@ function Shell({ children }) {
     Number(localStorage.getItem('mabia.lastSync')) || null)
   const [sun, setSun] = useState(localStorage.getItem(SUN_KEY) === 'on')
   const [syncing, setSyncing] = useState(false)
+  const [drawer, setDrawer] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.sun = sun ? 'on' : 'off'
     localStorage.setItem(SUN_KEY, sun ? 'on' : 'off')
   }, [sun])
+
+  useEffect(() => { setDrawer(false) }, [location.pathname])
 
   useEffect(() => {
     const tick = async () => {
@@ -90,141 +94,153 @@ function Shell({ children }) {
   useEffect(() => { if (online) sync() }, [online])
 
   const stale = !online || (lastSync && Date.now() - lastSync > 2 * 3600 * 1000)
-
-  const me = JSON.parse(localStorage.getItem('mabia.user') || 'null')
+  const me = storedUser.get()
   const initials = (me?.name || '')
     .split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+  const role = ({ cho: 'CHPS Worker', nutritionist: 'Nutrition Officer',
+                  nurse: 'On-call Nurse', admin: 'Supervisor' })[me?.role]
+                || 'CHPS Worker'
 
   return (
     <div className="shell">
-      {/* Desktop only. On a phone these same destinations are the bottom bar,
-          because a fixed sidebar on a 390px screen is a drawer nobody opens. */}
-      <aside className="rail">
-        <div className="wordmark">
-          <span className="glyphmark" aria-hidden="true">M</span>
-          <span>
-            <span className="name">Mabia AI</span>
-            <span className="sub">Care Network</span>
+      {drawer && <div className="rail-scrim" onClick={() => setDrawer(false)} />}
+
+      {/* On a phone this same list becomes the bottom bar, because a fixed
+          sidebar on a 390px screen is a drawer nobody opens. */}
+      <aside className={`rail ${drawer ? 'open' : ''}`}>
+        <div className="rail-brand">
+          <span className="rail-mark"><I.Logo /></span>
+          <span className="rail-name">
+            Mabia AI
+            <span>Care Network</span>
           </span>
         </div>
-        <div className="kicker">CHPS worker system</div>
+        <div className="rail-kicker">CHPS Worker System</div>
+
         <nav aria-label="Sections">
-          {TABS.map(t => (
-            <NavLink key={t.to} to={t.to}
+          {NAV.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to}
                      className={({ isActive }) => isActive ? 'active' : ''}>
-              <span className="glyph" aria-hidden="true">{t.glyph}</span>
-              <span>{t.label}</span>
+              <Icon />
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
-        <div className="foot">
-          <div className="status-card">
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>System status</div>
-            <div>
-              <span className={`dot ${online ? 'on' : 'off'}`} aria-hidden="true" />
+
+        <div className="rail-foot">
+          <div className="rail-status">
+            <div className="t"><I.Cloud /> System Status</div>
+            <div className="r">
+              <span className={`dot ${online ? '' : 'off'}`} />
               {online ? 'Online' : 'Offline'}
             </div>
-            <div style={{ opacity: .75, marginTop: 2 }}>
-              Last sync: {ago(lastSync)}
-            </div>
-            {pending > 0 && (
-              <div style={{ opacity: .75 }}>{pending} waiting to send</div>
-            )}
-            {refused.length > 0 && (
-              <div style={{ marginTop: 2 }}>
-                {refused.length} could not be saved
-              </div>
-            )}
+            <div className="s">Last sync: {ago(lastSync)}</div>
           </div>
         </div>
       </aside>
 
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">
-          <span className="mark" aria-hidden="true" />Mabia
-        </span>
-        <span className="spacer" />
-        {me && (
-          <span className="row" style={{ gap: 8, marginRight: 4 }}>
-            <span className="avatar" aria-hidden="true"
-                  style={{ width: 30, height: 30, flexBasis: 30, fontSize: '.8rem' }}>
-              {initials || '·'}
-            </span>
-            <span style={{ fontSize: '.85rem', lineHeight: 1.2 }}>
-              {me.name?.split(' ')[0]}
-              <span style={{ display: 'block', opacity: .7, fontSize: '.72rem' }}>
-                {me.role === 'nutrition_officer' ? 'Nutrition officer'
-                  : me.role === 'nurse' ? 'Nurse' : 'CHPS worker'}
+      <div className="main">
+        <header className="topbar">
+          <button className="burger" onClick={() => setDrawer(d => !d)}
+                  aria-label="Menu"><I.Burger /></button>
+
+          <span className="spacer" />
+
+          <div className="sysline">
+            <span className={`dot ${online ? '' : 'off'}`} />
+            <span>
+              <span className="l" style={{ display: 'block' }}>
+                {online ? 'Online' : 'Offline'}
+              </span>
+              <span className="s">
+                {online ? 'All systems operational' : 'Working from this phone'}
               </span>
             </span>
-          </span>
-        )}
-        <button onClick={() => setSun(s => !s)} aria-pressed={sun}
-                title="High-contrast mode for bright sunlight">
-          {sun ? 'Sun on' : 'Sun'}
-        </button>
-      </header>
+          </div>
 
-      {/* The server refused these and this device is the only copy. Loud,
-          permanent until dealt with, and never folded into "waiting to send" --
-          waiting is exactly what will not fix them. */}
-      {refused.length > 0 && (
-        <div className="notice bad" role="alert"
-             style={{ margin: '0 0 .6rem', borderRadius: 0 }}>
-          <strong>{refused.length} record{refused.length > 1 ? 's' : ''} could
-          not be saved.</strong> They are still on this phone and nothing has
-          been lost, but they need fixing before they will go.
-          <ul style={{ margin: '.4rem 0 .4rem 1.1rem', padding: 0 }}>
-            {refused.slice(0, 4).map(r => (
-              <li key={r.event_id}>
-                {(r.event_type || 'record').replace(/_/g, ' ')} —{' '}
-                {r.rejected_reason}
-              </li>
-            ))}
-          </ul>
-          {refused.length > 4 && <div>…and {refused.length - 4} more.</div>}
-        </div>
-      )}
+          <span className="topdiv" />
 
-      {/* Always present, never a toast: how old this is, and what is waiting. */}
-      <div className={`syncbar ${stale ? 'stale' : ''}`} role="status">
-        <span>
-          {online
-            ? `Synced ${ago(lastSync)}`
-            : 'Offline — showing what is saved on this phone'}
-          {pending > 0 && ` · ${pending} waiting to send`}
-        </span>
-        <span className="spacer" />
-        {online && (
-          <button onClick={sync} disabled={syncing}>
-            {syncing ? <span className="spin" /> : 'Sync now'}
+          <button className="bell" onClick={sync}
+                  aria-label={`${refused.length + pending} items need attention`}>
+            <I.Bell />
+            {(refused.length + pending) > 0 && (
+              <span className="count">{refused.length + pending}</span>
+            )}
           </button>
+
+          <span className="topdiv" />
+
+          <div className="whoami">
+            <span className="avatar">{initials || '—'}</span>
+            <span className="whotext">
+              <span className="n">{me?.name || 'Signed in'}</span>
+              <span className="r">{role}</span>
+            </span>
+            <button className="quiet small" onClick={() => setSun(s => !s)}
+                    aria-pressed={sun}
+                    title="Maximum contrast, for a screen in direct sunlight">
+              {sun ? 'Sun on' : 'Sun'}
+            </button>
+          </div>
+        </header>
+
+        {/* The server refused these and this device is the only copy. Loud,
+            permanent until dealt with, and never folded into "waiting to
+            send" -- waiting is exactly what will not fix them. */}
+        {refused.length > 0 && (
+          <div className="notice bad" role="alert"
+               style={{ borderRadius: 0, borderWidth: '0 0 1px' }}>
+            <strong>{refused.length} record{refused.length > 1 ? 's' : ''} could
+            not be saved.</strong> They are still on this phone and nothing has
+            been lost, but they need fixing before they will go.
+            <ul style={{ margin: '.4rem 0 0 1.1rem', padding: 0 }}>
+              {refused.slice(0, 4).map(r => (
+                <li key={r.event_id}>
+                  {(r.event_type || 'record').replace(/_/g, ' ')} — {r.rejected_reason}
+                </li>
+              ))}
+            </ul>
+            {refused.length > 4 && <div>…and {refused.length - 4} more.</div>}
+          </div>
         )}
+
+        {/* Always present, never a toast: how old this is, and what is waiting. */}
+        <div className={`syncbar ${stale ? 'stale' : ''}`} role="status">
+          <span>
+            {online ? `Synced ${ago(lastSync)}`
+                    : 'Offline — showing what is saved on this phone'}
+            {pending > 0 && ` · ${pending} waiting to send`}
+          </span>
+          <span className="spacer" />
+          {online && (
+            <button onClick={sync} disabled={syncing}>
+              {syncing ? <span className="spin" /> : 'Sync now'}
+            </button>
+          )}
+        </div>
+
+        <main className="page">{children}</main>
       </div>
 
-      <main className="main">{children}</main>
-
       <nav className="tabbar" aria-label="Main">
-        {TABS.map(t => (
-          <NavLink key={t.to} to={t.to}
+        {NAV.map(({ to, label, Icon }) => (
+          <NavLink key={to} to={to}
                    className={({ isActive }) => isActive ? 'active' : ''}>
-            <span className="glyph" aria-hidden="true">{t.glyph}</span>
-            <span>{t.label}</span>
+            <Icon size={20} />
+            <span>{label}</span>
           </NavLink>
         ))}
       </nav>
     </div>
-    </div>
   )
 }
 
-export function BackLink({ to = '/worklist', label = 'Worklist' }) {
+export function BackLink({ to = '/patients', label = 'Back to Patients' }) {
   const navigate = useNavigate()
   return (
-    <button className="quiet small" style={{ marginBottom: 12 }}
+    <button className="quiet small" style={{ marginBottom: 14, paddingLeft: 0 }}
             onClick={() => navigate(to)}>
-      {'←'} {label}
+      <I.Back size={17} /> {label}
     </button>
   )
 }
@@ -244,17 +260,25 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Navigate to="/worklist" replace />} />
-        <Route path="/worklist" element={<Guard><Worklist /></Guard>} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Guard><Dashboard /></Guard>} />
+        <Route path="/patients" element={<Guard><Patients /></Guard>} />
         <Route path="/patients/:id" element={<Guard><Patient /></Guard>} />
-        <Route path="/enrol" element={<Guard><Enrol /></Guard>} />
-        <Route path="/simulator" element={<Guard><Simulator /></Guard>} />
-        <Route path="/nutrition" element={<Guard><Nutrition /></Guard>} />
-        <Route path="/voice" element={<Guard><Voice /></Guard>} />
-        <Route path="/facility" element={<Guard><Facility /></Guard>} />
-        <Route path="/metrics" element={<Guard><Metrics /></Guard>} />
-        <Route path="/setup" element={<Guard><Setup /></Guard>} />
-        <Route path="*" element={<Navigate to="/worklist" replace />} />
+        <Route path="/visits" element={<Guard><Visits /></Guard>} />
+        <Route path="/visits/enrol" element={<Guard><Enrol /></Guard>} />
+        <Route path="/visits/facility" element={<Guard><Facility /></Guard>} />
+        <Route path="/reports" element={<Guard><Reports /></Guard>} />
+        <Route path="/settings" element={<Guard><Settings /></Guard>} />
+        {/* The old addresses still resolve; a bookmark should not break. */}
+        <Route path="/worklist" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/enrol" element={<Navigate to="/visits/enrol" replace />} />
+        <Route path="/facility" element={<Navigate to="/visits/facility" replace />} />
+        <Route path="/metrics" element={<Navigate to="/reports" replace />} />
+        <Route path="/nutrition" element={<Navigate to="/reports?view=nutrition" replace />} />
+        <Route path="/voice" element={<Navigate to="/settings?view=voice" replace />} />
+        <Route path="/simulator" element={<Navigate to="/settings?view=calls" replace />} />
+        <Route path="/setup" element={<Navigate to="/settings" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
   )

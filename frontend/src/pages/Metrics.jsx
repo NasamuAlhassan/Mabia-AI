@@ -21,7 +21,6 @@ export default function Metrics() {
 
   return (
     <>
-      <BackLink />
 
       <section className="metric-hero">
         <div className="n">{reached}</div>

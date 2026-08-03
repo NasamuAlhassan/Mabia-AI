@@ -41,8 +41,11 @@ export function useData(path, { interval = 0, enabled = true } = {}) {
       // attempt would have worked is how an app earns a reputation for being
       // broken. Auth failures are not retried: those will not fix themselves.
       const worthRetrying = !(e instanceof ApiError && e.status === 401)
-      if (attempt < 1 && worthRetrying) {
-        await new Promise(r => setTimeout(r, 600))
+      // Two, with a widening gap. One was not enough: signing in and opening a
+      // record immediately still lost the race often enough to show "could not
+      // load this" on a screen whose data was fine.
+      if (attempt < 2 && worthRetrying) {
+        await new Promise(r => setTimeout(r, 400 * (attempt + 1)))
         if (!alive.current) return
         return reload({ quiet, attempt: attempt + 1 })
       }
@@ -91,7 +94,12 @@ export function useData(path, { interval = 0, enabled = true } = {}) {
 
 export function ago(timestamp) {
   if (!timestamp) return 'never'
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000))
+  // Accepts a millisecond number or an ISO string. It only ever received the
+  // first, so the day a server timestamp reached it the screen read
+  // "NaN days ago" beside an open emergency.
+  const at = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp)
+  if (Number.isNaN(at)) return 'unknown'
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000))
   if (seconds < 45) return 'just now'
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) return `${minutes} min ago`

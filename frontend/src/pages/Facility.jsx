@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { BackLink } from '../App'
 import CriticalAction from '../lib/CriticalAction'
 import { useData, Empty, Failed, Skeleton } from '../lib/data'
-import { reasonLabel } from './Worklist'
+import { reasonLabel } from './Dashboard'
 import { display as phone } from '../phone'
 
 // Delay 3, made about time.

@@ -13,6 +13,7 @@ from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
 from .. import phones
 from ..security import patient_in_reach
+from .worklist import weeks_pregnant
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -215,7 +216,18 @@ def _summary(db: Session, patient: Patient):
             "risk_level": state.risk_level if state else "green",
             "reason_codes": (state.reason_codes if state else []) or [],
             "red_open": bool(state.red_open) if state else False,
-            "last_contact_at": state.last_contact_at if state else None}
+            "last_contact_at": state.last_contact_at if state else None,
+            # The first thing anyone reads about a pregnant woman, and it was
+            # only on the list endpoint -- so her own record said "not
+            # recorded" for a fact the list beside it had shown.
+            "weeks_pregnant": weeks_pregnant(patient),
+            "taboos": patient.taboos or [],
+            "mdd_score": state.mdd_score if state else None,
+            "mdd_instrument": state.mdd_instrument if state else None,
+            "mdd_unknown": state.mdd_unknown if state else None,
+            "muac_mother": state.muac_mother if state else None,
+            "muac_child": state.muac_child if state else None,
+            "ifa_adherent": state.ifa_adherent if state else None}
 
 
 def _state(state: Optional[PatientState]):

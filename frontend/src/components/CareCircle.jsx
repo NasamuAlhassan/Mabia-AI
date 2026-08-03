@@ -31,17 +31,14 @@ export default function CareCircle({ patientId }) {
 
   if (!circle) return null
 
+  // No card and no heading of its own: it is rendered inside one.
   return (
-    <div className="card">
-      <div className="section-head" style={{ margin: '0 0 12px' }}>
-        <span className="num" aria-hidden="true">◎</span>
-        Care circle
-        {circle.missing.length > 0 && (
-          <span className="badge amber" style={{ marginLeft: 'auto' }}>
-            {circle.missing.length} missing
-          </span>
-        )}
-      </div>
+    <>
+      {circle.missing.length > 0 && (
+        <p className="muted tiny" style={{ marginTop: 0 }}>
+          <span className="pill medium">{circle.missing.length} missing</span>
+        </p>
+      )}
 
       {circle.missing.length > 0 && (
         <p className="muted tiny">
@@ -132,6 +129,6 @@ export default function CareCircle({ patientId }) {
         messaged too — told what to do, never given a diagnosis. A driver already
         agreed with here is called before anyone else.
       </p>
-    </div>
+    </>
   )
 }

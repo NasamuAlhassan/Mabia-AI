@@ -20,6 +20,7 @@ import { outbox } from '../db'
 
 export default function CriticalAction({
   path, body, label, busyLabel = 'Sending…', doneLabel = 'Done',
+  holdHint = true,
   className = 'primary wide', onDone, queueAs = null, holdMs = 0,
   confirm = null,
 }) {
@@ -91,7 +92,7 @@ export default function CriticalAction({
         {busy ? busyLabel
           : state === 'done' ? doneLabel
           : state === 'queued' ? 'Queued'
-          : holdMs ? `${label} — press and hold` : label}
+          : (holdMs && holdHint) ? `${label} — press and hold` : label}
       </button>
       {message && (
         <div className={`notice ${state === 'failed' ? 'bad'

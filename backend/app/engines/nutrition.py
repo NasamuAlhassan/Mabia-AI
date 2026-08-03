@@ -176,6 +176,26 @@ def recommend(
     recent_groups = set(recent_groups or [])
 
     if not recall.missing:
+        # "No gaps" and "no answers" are not the same thing, and treating them
+        # alike congratulated a woman on a perfect diet built from silence. A
+        # dropped keypress is not a food eaten. If most of the questionnaire
+        # went unanswered there is nothing to congratulate and nothing to
+        # advise -- say so, and let it reach a human.
+        if recall.unknown and len(recall.present) < recall.minimum:
+            return Recommendation(
+                None, None, season,
+                "We could not get through the food questions this time, so "
+                "there is nothing to tell her yet. Ask her about her food at "
+                "the next visit.",
+                "{} of {} food questions went unanswered — not measured".format(
+                    len(recall.unknown), recall.total))
+        if recall.unknown:
+            return Recommendation(
+                None, None, season,
+                "Everything she answered about, she ate. Tell her so — and ask "
+                "about the rest at the next visit.",
+                "no gaps among the {} answered; {} unanswered".format(
+                    len(recall.present), len(recall.unknown)))
         return Recommendation(
             None, None, season,
             "Her diet covered every food group this time. Tell her so — and ask "

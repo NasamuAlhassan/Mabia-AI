@@ -226,6 +226,9 @@ _EXTRA_LABELS = {
     "emergency.open": "Emergency still open",
     "hotline.nurse_unreachable": "Could not reach a nurse",
     "call.hotline_unfinished": "Rang the hotline; we could not take her answers",
+    "call.hotline_unfinished_shared_phone":
+        "Someone on this shared phone rang the hotline; we could not take "
+        "their answers — check who called",
 }
 
 

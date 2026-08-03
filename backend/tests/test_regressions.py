@@ -22,6 +22,8 @@ from app import events as ev  # noqa: E402
 from app import services  # noqa: E402
 from app.db import Base, SessionLocal, engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
 from app.models import (CallSession, Contact, Dispatch, Driver, Emergency,  # noqa: E402
                         Event, Message, Patient, PatientState, User)
 from app.telephony import service as tel  # noqa: E402
@@ -2165,7 +2167,9 @@ def test_a_reported_danger_sign_survives_a_call_that_ends_badly(db):
     ivr.advance(db, session, None, "", "http://x/cb")
     ivr.advance(db, session, "1", "", "http://x/cb")      # consent
     ivr.advance(db, session, "1", "", "http://x/cb")      # yes, bleeding
-    for _ in range(30):
+    # Generous: every diet question is now asked twice on silence before it is
+    # left unanswered, so a fully silent call is a long one.
+    for _ in range(80):
         turn = ivr.advance(db, session, None, "", "http://x/cb")
         if turn.finished:
             break
@@ -2532,8 +2536,11 @@ def test_a_duplicated_number_does_not_stop_the_service_booting(tmp_path):
                        "VALUES ('u2','B','0200000001','cho','x')"))
 
     report = add_missing_columns(engine)          # must not raise
-    assert any("collide" in r for r in report), \
-        "the collision was not reported to anyone"
+    assert any("left as written" in r for r in report), \
+        "the refusal was not reported to anyone: {}".format(report)
+    # And it says what the database actually said, rather than assuming.
+    assert any("UNIQUE" in r.upper() for r in report), \
+        "the real reason was replaced by a guess: {}".format(report)
 
     with engine.begin() as c:
         rows = dict(c.execute(text("SELECT id, phone FROM users")).fetchall())
@@ -2562,3 +2569,226 @@ def test_normalising_legacy_numbers_uses_the_primary_key(tmp_path):
     with engine.begin() as c:
         assert c.execute(text("SELECT phone FROM drivers")).scalar() == "+233244000111"
         assert c.execute(text("SELECT phone FROM users")).scalar() == "+233200000009"
+
+
+# ------------------------- gaps a second round of mutation testing found
+
+
+def test_the_emergency_list_excludes_other_facilities(client, db, auth):
+    """Deleting the scoping filter entirely passed the whole suite.
+
+    The existing test asserts a RED she SHOULD see is present. Nothing asserted
+    that one she should not see is absent, so a total authorisation bypass on
+    the list was invisible.
+    """
+    from app.models import Facility, User as UserModel
+
+    far = Facility(name="Unrelated CHPS", community="Far Away",
+                   region="Upper West")
+    db.add(far)
+    db.flush()
+    stranger = UserModel(name="Their Worker", phone="+233209999891", role="cho",
+                         pin_hash="x", facility_id=far.id)
+    db.add(stranger)
+    db.flush()
+    theirs = Patient(name="Not My Patient", phone="+233240000881",
+                     community="Far Away", region="Upper West", consent=True,
+                     assigned_cho_id=stranger.id, facility_id=far.id)
+    db.add(theirs)
+    db.flush()
+    services.raise_emergency(db, theirs, ["sign.bleeding"], "ivr")
+    db.commit()
+
+    listed = client.get("/api/emergencies", headers=auth).json()
+    names = [e["patient"]["name"] for e in listed if e.get("patient")]
+    assert "Not My Patient" not in names, \
+        "another facility's emergency is on her list"
+    # And it is genuinely scoped, not merely empty.
+    assert names, "the list returned nothing at all, so this proves nothing"
+
+
+def test_a_call_that_collected_nothing_does_not_reopen_an_old_red(db):
+    """The whole `collected` guard was unpinned -- even finalising
+    unconditionally passed. Finalisation re-derives risk from history, so a
+    call in which nothing was said raised a fresh RED naming a danger sign
+    from a previous contact, every time a worker closed the last one."""
+    from app.api.telephony import _after_call
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    before = db.query(Emergency).filter(
+        Emergency.patient_id == patient.id).count()
+    assert before >= 1, "fixture expects a RED already in her history"
+
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+    for _ in range(10):
+        turn = ivr.advance(db, session, "7", "", "http://x/cb")
+        if turn.finished:
+            break
+
+    assert not (session.answers or {}).get("danger")
+    _after_call(db, session)
+    db.flush()
+    assert db.query(Emergency).filter(
+        Emergency.patient_id == patient.id).count() == before, \
+        "a call in which nothing was said opened an emergency"
+
+
+def test_silence_on_a_food_question_is_asked_again_before_giving_up(db):
+    """Silence got zero re-asks while a wrong key got three -- less tolerant
+    than the code it replaced, on the input a bad GSM line produces most."""
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    session.include_diet = True
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+    ivr.advance(db, session, "1", "", "http://x/cb")
+    for _ in range(8):
+        ivr.advance(db, session, "2", "", "http://x/cb")
+        if session.state == "diet":
+            break
+    assert session.state == "diet"
+
+    cursor = session.cursor
+    ivr.advance(db, session, None, "", "http://x/cb")
+    assert session.cursor == cursor, \
+        "one dropped keypress discarded the food group with no second attempt"
+    ivr.advance(db, session, None, "", "http://x/cb")
+    assert session.cursor == cursor + 1, "it never moves on"
+
+
+def test_a_diet_of_silence_is_reported_as_unmeasured_through_the_whole_call(db):
+    """Recall was tested directly and the call path never was, so the wiring
+    that carries `unknown` out of the IVR was completely unpinned."""
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Zeinab Mahama").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="english")
+    session.include_diet = True
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+    ivr.advance(db, session, "1", "", "http://x/cb")
+    for _ in range(90):
+        turn = ivr.advance(db, session, None, "", "http://x/cb")
+        if turn.finished:
+            break
+    ivr.finalise(db, session)
+    db.commit()
+
+    diet = (session.answers or {}).get("diet") or {}
+    assert diet, "no diet answers recorded at all"
+    assert all(v is None for v in diet.values()), \
+        "silence was recorded as a food she did not eat"
+
+    from app.models import Event
+    recall_event = (db.query(Event)
+                    .filter(Event.patient_id == patient.id,
+                            Event.event_type == ev.DIET_RECALL)
+                    .order_by(Event.recorded_at.desc()).first())
+    assert recall_event is not None
+    assert len(recall_event.payload.get("unknown") or []) >= 8
+    assert recall_event.payload.get("missing") == []
+
+    # And she is not told her diet is perfect.
+    message = recall_event.payload.get("message") or ""
+    assert "covered every food group" not in message, \
+        "congratulated on a diet built from silence: {}".format(message[:80])
+    assert "could not get through" in message
+
+
+def test_a_diet_we_could_not_measure_is_not_counted_as_a_deficient_one(db):
+    """The projection carried the score and not how much of it was real, so
+    the worklist flagged a bad phone line as a nutrition problem."""
+    from app.models import PatientState
+
+    patient = db.query(Patient).filter(Patient.name == "Zeinab Mahama").first()
+    state = db.get(PatientState, patient.id)
+    assert state.mdd_score == 0
+    assert (state.mdd_unknown or 0) >= 8, \
+        "the projection cannot tell an unmeasured diet from a deficient one"
+
+
+def test_the_cascade_never_rings_one_handset_twice(db):
+    """Two rows can carry one number, and the dedupe was on row id."""
+    from app.models import Dispatch
+
+    patient = Patient(name="Two Rows", phone="+233240000891",
+                      community="Duplicate Village", region="Northern",
+                      consent=True)
+    db.add(patient)
+    db.flush()
+    for name in ("Same Man A", "Same Man B"):
+        db.add(Driver(name=name, phone="+233244000999",
+                      community="Duplicate Village", available=True))
+    db.flush()
+
+    emergency = services.raise_emergency(db, patient, ["sign.bleeding"], "ivr")
+    worker = db.query(User).filter(User.role == "cho").first()
+    services.validate_emergency(db, emergency, worker)
+    services.offer_next_driver(db, emergency)
+    services.offer_next_driver(db, emergency)
+    db.flush()
+
+    rung = [db.get(Driver, d.driver_id).phone
+            for d in db.query(Dispatch).filter(
+                Dispatch.emergency_id == emergency.id).all()]
+    assert len(rung) == len(set(rung)), \
+        "the same handset was rung twice: {}".format(rung)
+
+
+def test_a_worker_whose_number_could_not_be_normalised_can_still_sign_in(client, db):
+    """A migration collision left her row as written, and login looked only
+    for the canonical form -- so no spelling of her own number reached it."""
+    from app.models import User as UserModel
+    from app.security import hash_pin
+
+    # Stored exactly as an old database would have it, bypassing the ORM
+    # listener the way a legacy row does.
+    db.execute(text(
+        "INSERT INTO users (id, name, phone, role, pin_hash) "
+        "VALUES ('legacy1', 'Legacy Worker', '0209998887', 'cho', :p)"),
+        {"p": hash_pin("4321")})
+    db.commit()
+
+    for spelling in ("0209998887", "+233209998887", "233209998887"):
+        r = client.post("/api/auth/login", json={"phone": spelling, "pin": "4321"})
+        assert r.status_code == 200, \
+            "{} did not reach her account".format(spelling)
+
+
+def test_a_shared_handset_does_not_put_one_womans_name_on_anothers_alarm(db):
+    """Caller ID takes the first match, and handsets are shared here."""
+    from app.telephony import ivr, service as tel
+
+    shared = "+233240000895"
+    first = Patient(name="Senior Wife", phone=shared, community="Kpale",
+                    region="Northern", consent=True)
+    second = Patient(name="Junior Wife", phone=shared, community="Kpale",
+                     region="Northern", consent=True)
+    db.add_all([first, second])
+    db.flush()
+
+    session, _ = tel.start_call(db, phone=shared, patient_id=first.id,
+                                purpose="hotline", language="english")
+    db.flush()
+    ivr.advance(db, session, None, "", "http://x/cb")
+    for _ in range(12):
+        turn = ivr.advance(db, session, "7", "", "http://x/cb")
+        if turn.finished:
+            break
+
+    db.flush()
+    raised = db.query(Emergency).filter(
+        Emergency.patient_id == first.id).order_by(
+        Emergency.created_at.desc()).first()
+    assert raised is not None
+    assert "shared_phone" in raised.reason_codes[0], \
+        "named one woman on an alarm that may be the other's: {}".format(
+            raised.reason_codes)

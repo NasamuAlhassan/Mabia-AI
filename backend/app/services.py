@@ -216,9 +216,23 @@ def offer_next_driver(db: Session, emergency: Emergency) -> Optional[Dispatch]:
         emergency.status = "cancelled"
         db.flush()
         return None
-    already = {d.driver_id for d in emergency.dispatches}
+    # Deduped by handset, not by row. Two rows can carry one number -- a
+    # household naming a driver already on the roster under a different
+    # spelling, or a migration normalising both into agreement -- and this
+    # cascade then rang the same man twice, telling the health worker it had
+    # moved on to the next driver while burning a position in a queue that
+    # exists for a bleeding woman.
+    # Queried, not read off the relationship: emergency.dispatches is stale
+    # immediately after a flush, so the second call in a cascade saw an empty
+    # list and happily rang the same man again.
+    offered = (db.query(Dispatch)
+                 .filter(Dispatch.emergency_id == emergency.id).all())
+    already = {d.driver_id for d in offered}
+    tried_numbers = {db.get(Driver, d.driver_id).phone
+                     for d in offered
+                     if db.get(Driver, d.driver_id) is not None}
     for driver in rank_drivers(db, patient):
-        if driver.id in already:
+        if driver.id in already or driver.phone in tried_numbers:
             continue
         already.add(driver.id)
         dispatch = Dispatch(emergency_id=emergency.id, driver_id=driver.id,

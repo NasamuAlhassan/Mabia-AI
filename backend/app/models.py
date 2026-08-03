@@ -209,6 +209,7 @@ class PatientState(Base):
     consecutive_unreachable = Column(Integer, default=0)
     mdd_score = Column(Integer)
     mdd_instrument = Column(String)                  # mdd_w | mdd_child
+    mdd_unknown = Column(Integer)                    # questions never answered
     mdd_missing_groups = Column(MutableList.as_mutable(JSON), default=list)
     muac_mother = Column(Float)
     muac_child = Column(Float)

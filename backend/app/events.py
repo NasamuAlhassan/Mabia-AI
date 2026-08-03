@@ -51,6 +51,7 @@ class Snapshot:
         self.danger_signs: Dict[str, dt.datetime] = {}   # sign -> when last affirmed
         self.cleared_signs: Dict[str, dt.datetime] = {}  # sign -> when last denied
         self.mdd_score: Optional[int] = None
+        self.mdd_unknown: Optional[int] = None
         self.mdd_instrument: Optional[str] = None
         self.mdd_missing: List[str] = []
         self.mdd_history: List[int] = []
@@ -155,6 +156,12 @@ def _apply(snap: Snapshot, event: Event) -> None:
 
     elif kind == DIET_RECALL:
         snap.mdd_score = payload.get("score")
+        # How many questions went unanswered. Without it the projection cannot
+        # tell "she eats three food groups" from "we only got three answers",
+        # and the worklist and the metrics were reading the second as the
+        # first -- flagging a woman for nutrition follow-up on the strength of
+        # a bad phone line.
+        snap.mdd_unknown = len(payload.get("unknown") or [])
         snap.mdd_instrument = payload.get("instrument")
         snap.mdd_missing = payload.get("missing", [])
         if payload.get("score") is not None:
@@ -226,6 +233,7 @@ def refresh_state(db: Session, patient_id: str) -> PatientState:
     state.last_contact_outcome = snap.last_contact_outcome
     state.consecutive_unreachable = snap.consecutive_unreachable
     state.mdd_score = snap.mdd_score
+    state.mdd_unknown = snap.mdd_unknown
     state.mdd_instrument = snap.mdd_instrument
     state.mdd_missing_groups = snap.mdd_missing
     state.muac_mother = snap.muac_mother

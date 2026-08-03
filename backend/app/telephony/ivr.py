@@ -429,10 +429,17 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         # signs she had already given with it. An unasked food group is a gap in
         # the score, not an emergency; the call moves on either way.
         answered = digit in ("1", "2")
-        if not answered and digit is not None:
-            tries = "misdials_diet_" + group
+        if not answered:
+            # Silence gets asked again too. It used to get none at all while a
+            # wrong key got three, so one dropped keypress on a GSM line threw
+            # the food group away permanently -- less tolerant than the code
+            # this replaced, and the feeder for a call that then reported no
+            # gaps because nothing had been measured.
+            tries = ("misdials_diet_" if digit is not None
+                     else "silence_diet_") + group
             answers[tries] = answers.get(tries, 0) + 1
-            if answers[tries] <= MAX_MISDIALS:
+            budget = MAX_MISDIALS if digit is not None else 1
+            if answers[tries] <= budget:
                 session.answers = answers
                 session.transcript = transcript
                 db.flush()
@@ -584,7 +591,18 @@ def _escalate_unfinished_hotline(db, session) -> None:
     patient = db.get(Patient, session.patient_id)
     if patient is None:
         return
-    services.raise_emergency(db, patient, ["call.hotline_unfinished"], "hotline")
+
+    # Handsets are shared -- co-wives, a household phone -- and the caller-ID
+    # lookup takes the first match. Naming one of them in a RED and texting her
+    # health worker about a call the other made is worse than saying we do not
+    # know who rang: it puts a specific woman's name on an alarm that may have
+    # nothing to do with her, and it stands down attention on whoever did call.
+    sharing = (db.query(Patient)
+                 .filter(Patient.phone == patient.phone,
+                         Patient.status == "active").count())
+    reason = ("call.hotline_unfinished" if sharing <= 1
+              else "call.hotline_unfinished_shared_phone")
+    services.raise_emergency(db, patient, [reason], "hotline")
 
 
 def _nutrition_message(db: Session, session: CallSession):

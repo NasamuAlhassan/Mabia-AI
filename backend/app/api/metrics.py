@@ -39,7 +39,13 @@ def metrics(db: Session = Depends(get_db), user: User = Depends(current_user)):
     # threshold happens to be five in both, which is exactly what made pooling
     # them look harmless -- the denominators and the populations differ, so the
     # pooled number is a percentage of nothing in particular.
-    mdd_rows = db.query(PatientState).filter(PatientState.mdd_score.isnot(None)).all()
+    # Only diets we actually measured. A recall where three or more questions
+    # went unanswered is a bad phone line, not a deficient diet, and counting
+    # it as a failure understated the reach figure and the diversity figure at
+    # the same time.
+    mdd_rows = [s for s in db.query(PatientState)
+                .filter(PatientState.mdd_score.isnot(None)).all()
+                if (s.mdd_unknown or 0) < 3]
     women = [s for s in mdd_rows if s.mdd_instrument == "mdd_w"]
     children = [s for s in mdd_rows if s.mdd_instrument == "mdd_child"]
     women_ok = sum(1 for s in women if (s.mdd_score or 0) >= MDDW_MINIMUM)

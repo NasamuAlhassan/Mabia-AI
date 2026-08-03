@@ -83,3 +83,24 @@ def display(raw: Optional[str]) -> str:
     if len(national) != NATIONAL_DIGITS:
         return number
     return "0{} {} {}".format(national[:2], national[2:5], national[5:])
+
+
+def variants(raw):
+    """Every spelling of this number that might be sitting in the database.
+
+    Rows written before normalisation existed keep their original form, and a
+    row the migration could not rewrite -- because doing so would collide --
+    keeps it forever. Looking only for the canonical form meant such a row was
+    unreachable by any spelling its owner could type, which for the users table
+    is a permanent lockout.
+    """
+    canonical = normalise(raw)
+    out = {(raw or "").strip()}
+    if canonical:
+        out.add(canonical)
+        if canonical.startswith("+" + GHANA):
+            national = canonical[1 + len(GHANA):]
+            out.add("0" + national)
+            out.add(GHANA + national)
+            out.add(national)
+    return {v for v in out if v}

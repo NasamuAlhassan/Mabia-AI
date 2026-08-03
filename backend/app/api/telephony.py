@@ -230,9 +230,16 @@ def _after_call(db: Session, session: CallSession, keep_open: bool = False) -> N
     # cover both, so a woman who pressed 1 for bleeding and then went quiet had
     # her answer discarded and no emergency raised. Whether anything was
     # collected decides this, not how the call ended.
+    #
+    # "incomplete" has to be tested here too. It was added for a call that gave
+    # up, and because it is not in this tuple it ran full finalisation on a call
+    # in which nothing was said -- which re-derives risk from history and so
+    # opened a fresh RED, with an SMS naming a danger sign from a previous
+    # contact, every time a worker closed the last one. A call that collected
+    # nothing is an attempt however it ended.
     collected = bool((session.answers or {}).get("danger")
                      or (session.answers or {}).get("diet"))
-    if session.outcome in ("failed", "no_input") and not collected:
+    if session.outcome in ("failed", "no_input", "incomplete") and not collected:
         if session.patient_id:
             ev.record(db, patient_id=session.patient_id, actor_id="system",
                       event_type=ev.CALL_ATTEMPTED,

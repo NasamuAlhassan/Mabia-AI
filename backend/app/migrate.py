@@ -172,14 +172,19 @@ def normalise_stored_phones(engine: Engine) -> list:
                                  .format(table, column, key)),
                             {"v": canonical, "k": row_key})
                     fixed += 1
-                except IntegrityError:
-                    collided.append(str(row_key))
+                except IntegrityError as exc:
+                    # Say what the database actually said. Reporting every
+                    # integrity failure as "would collide with an existing row"
+                    # gives a confident, wrong diagnosis for a CHECK, a foreign
+                    # key, or anything else that refuses the write.
+                    collided.append("{} ({})".format(
+                        row_key, str(getattr(exc, "orig", exc))[:80]))
 
             if collided:
                 changed.append(
-                    "{}.{} ({} left as written — normalising would collide "
-                    "with an existing row: {})".format(
-                        table, column, len(collided), ", ".join(collided[:3])))
+                    "{}.{} ({} left as written — the database refused the "
+                    "change: {})".format(
+                        table, column, len(collided), "; ".join(collided[:3])))
             if fixed:
                 changed.append("{}.{} (normalised {} numbers)".format(
                     table, column, fixed))

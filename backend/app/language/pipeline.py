@@ -65,12 +65,30 @@ def load_cached(db: Session, language: str) -> int:
 
     loaded = 0
     for phrase in db.query(Phrase).filter(Phrase.language == language).all():
-        text = cached.get(phrase.key)
-        if text and not phrase.translated_text:
-            phrase.translated_text = text
+        entry = cached.get(phrase.key)
+        if not entry or phrase.translated_text:
+            continue
+
+        # Older caches stored a bare string with no record of its source.
+        if isinstance(entry, dict):
+            text, source = entry.get("t"), entry.get("src")
+        else:
+            text, source = entry, None
+        if not text:
+            continue
+
+        phrase.translated_text = text
+        phrase.provider = "khaya"
+        # A cached translation of English that has since been rewritten is not
+        # a current translation. Marked stale rather than presented as good,
+        # because the alternative is confidently speaking a sentence that
+        # renders wording nobody says any more.
+        if source is not None and source != phrase.source_text:
+            phrase.status = "stale"
+            phrase.previous_text = text
+        else:
             phrase.status = "translated"
-            phrase.provider = "khaya"
-            loaded += 1
+        loaded += 1
     db.flush()
     return loaded
 
@@ -124,13 +142,20 @@ def sync_catalogue(db: Session, language: str) -> int:
                           else "pending"))
             added += 1
         elif phrase.source_text != row["text"]:
-            # The English changed, so the translation is stale. A recorded take
-            # is kept but flagged, because the words it speaks are now wrong.
+            # The English changed, so the translation no longer matches it.
+            #
+            # The old wording is KEPT rather than deleted. Deleting it assumes a
+            # replacement is a request away, and with the quota exhausted it is
+            # not -- a translation thrown away here cannot be regenerated for
+            # weeks. So it is marked stale: still visible, still playable if
+            # someone judges it close enough, and clearly flagged as describing
+            # the previous English.
+            phrase.previous_text = phrase.translated_text
             phrase.source_text = row["text"]
-            phrase.status = "pending"
-            phrase.translated_text = None
-            if phrase.audio_source == "khaya_tts":
+            phrase.status = "stale"
+            if phrase.audio_source in ("khaya_tts", "mms_tts", "shipped"):
                 phrase.audio_path = None
+                phrase.audio_source = None
     db.flush()
     load_cached(db, language)
     adopt_audio_on_disk(db, language)
@@ -146,7 +171,7 @@ def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
     sync_catalogue(db, language)
     pending = (db.query(Phrase)
                  .filter(Phrase.language == language,
-                         Phrase.status.in_(["pending", "failed"]))
+                         Phrase.status.in_(["pending", "failed", "stale"]))
                  .limit(limit).all())
 
     translated, failed, errors = 0, 0, []
@@ -181,7 +206,7 @@ def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
             "errors": sorted(set(e for e in errors if e))[:3],
             "remaining": db.query(Phrase).filter(
                 Phrase.language == language,
-                Phrase.status.in_(["pending", "failed"])).count()}
+                Phrase.status.in_(["pending", "failed", "stale"])).count()}
 
 
 def providers_for(language: str) -> List[str]:
@@ -297,6 +322,7 @@ def status(db: Session, language: str) -> Dict:
     rows = db.query(Phrase).filter(Phrase.language == language).all()
     total = len(rows)
     translated = sum(1 for p in rows if p.status in ("translated", "reviewed"))
+    stale = sum(1 for p in rows if p.status == "stale")
     reviewed = sum(1 for p in rows if p.status == "reviewed")
     with_audio = sum(1 for p in rows if p.audio_path)
     recorded = sum(1 for p in rows if p.audio_source == "recorded")
@@ -305,6 +331,7 @@ def status(db: Session, language: str) -> Dict:
         "total": total,
         "translated": translated,
         "reviewed": reviewed,
+        "stale": stale,
         "with_audio": with_audio,
         "recorded_by_human": recorded,
         "synthesised": with_audio - recorded,

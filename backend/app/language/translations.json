@@ -1,104 +1,398 @@
 {
  "dagbani": {
-  "birth_plan": "A zaŋ liɣiri zali, ka zaŋ gbɔna n-nya ka so zaŋ ti ʒim? Zaŋmiya yim na sani, ka di na bi paai.",
-  "birth_plan_no": "Dimya suɣulo, zaŋmiya liɣiri mini ʒim zaŋ chaŋ dɔɣibu polo. A daalaafee tuntumdiba ni sɔŋ a.",
-  "birth_plan_yes": "Di viɛla. Gbibi liɣiri maa mini lɔndo maa shili.",
-  "closing": "M-paɣiri a. Ti ni ti zaŋ zilinli dihili na. Pumpɔŋɔ.",
-  "danger_bleeding": "A dɔɣiri kambɔŋ ni ʒim mali a? Kpɛm’ 1 ni o sani, 2 zuɣu anahi.",
-  "danger_convulsions": "A mali naŋgbankpeeni bee n-nyeri naŋgbaŋkpeeni? Kpɛm’ 1 ni o sani, 2 zuɣu anahi.",
-  "danger_fever": "A mali fiiba? Kpɛm’ 1 ni o sani, 2 zuɣu anahi.",
-  "danger_reduced_fetal_movement": "Biliɛɣu maa chɛ n-chani bee n-chɛ n-naai? Kpɛm’ 1 ni o sani, 2 zuɣu anahi.",
-  "danger_severe_headache": "A mali zuɣuyaali talima bee ʒiɛ’ titali? Kpɛm’ 1 ni o sani, 2 zuɣu anahi.",
-  "diet_breastmilk": "Bia maa zaŋ bihim saha shɛli n-kpuɣi bihili?",
-  "diet_dairy": "A sa kpuɣi bihim?",
-  "diet_dark_leafy": "A sa di momaha, kaman ayoyo bee tua?",
-  "diet_eggs": "A sa di galli?",
-  "diet_flesh": "A sa di zahim bee nimdi zaashee, hali zahim kuuya?",
-  "diet_grains": "A sa di kɔriŋga, tuafi, shinkaafa bee nyuli?",
-  "diet_intro": "Pumpɔŋɔ biɛla ka a sa di bindirigu maa yɛla.",
-  "diet_nuts_seeds": "A sa di sima bee nyuya?",
-  "diet_other_fruit": "A sa di wala wala?",
-  "diet_other_fruit_veg": "Bia maa sa di wala bee ʒiɛvari’ shɛl’ la?",
-  "diet_other_veg": "Nyini n-saɣim diri maana bee kambɔŋ bee sima?",
-  "diet_pulses": "A sa di tuya bee tuya?",
-  "diet_pulses_nuts_seeds": "Bia maa sa ŋubi tuya bee sima?",
-  "diet_vita_fruit_veg": "A sa di mango, gɔnda bee leemu diya?",
-  "driver_accepted": "M-paɣiri a. Dim suɣulo, cham’ pɔi. Alaafeelana tuuntumdiba ni boli a.",
-  "driver_declined": "M-paɣiri a. Ti ni bɔhi dɔriba so.",
-  "driver_request": "Kpaŋmi noli. Paɣa bɔrila lɔri sɔŋdi n-chaŋ alaafee tudu polo. Kpalim’ napɔŋ ni a deei, 2 a yi ku tooi kana.",
-  "escape_hint": "Saha shɛlikam, zaŋmi awei n-tɔɣisi nɛma yɛtɔɣa.",
-  "food_bambara": "Bamba tuya ka chɛ atam ka pali. Duɣimi li tiri yili ŋɔ bakɔi ŋɔ.",
-  "food_baobab_fruit": "Zaŋmi tua wala n-niŋ kom bee kɔringa. Vitamin C zuɣu ka di du pam, din sɔŋdi ka niŋgbuŋ zaŋ kuriti.",
-  "food_baobab_leaf": "Tua kuma tulaale zim kpɛm’ ʒiɛri ni. Tia maa be tiŋgban’ ni ka doli tabili yuun’ muni puuni zaa.",
-  "food_cassava": "Kambɔŋ beni. Zaŋmiya li leei bintaɣindili, amaa pahimi sima bee zahim din ni chɛ ka di pala taŋkpaɣu di kɔŋko.",
-  "food_cowpea": "Duɣimi tuya diba ayi bakɔi ŋɔ. Bɛ dɔɣiri viɛnyɛliŋga m-me ʒim maa.",
-  "food_dawadawa": "Niŋmiya daadawa duɣibu. Kurugu buni ka di pun be jaara ni pam.",
-  "food_dawadawa_fruit": "Dovihi tarili din be dɔyili puuni nyɛla din mali nyaɣisa ka mali biɛɣu. Zaŋmiya li ti bia maa ka pa ni wain tihi wala.",
-  "food_dried_fish": "Pɔŋ nyuuŋ zahim bihi n-zaŋ lɔɣiri duɣu n-niŋ kɔriŋga ni. Di mali alaha, ka ziŋa zaa tiri kuriti mini calcium zaa.",
-  "food_eggs": "Gala yini n-ti bilɛɣu maa, dabisa pam, a yi tooi nyaŋ li.",
-  "food_fresh_fish": "Ziŋ’ palli be saa maa ni.",
-  "food_garden_egg": "Gaya deei muriga ŋ-ŋɔ.",
-  "food_goat": "Niŋgbun duɣili yi ti liɣiri kani.",
-  "food_groundnut": "Zaŋmi sima niŋ kɔringa ni. Di tɔri atam kpuɣibu ni, ka pahi bia maa ni simdi ni o zooi nɔŋa.",
-  "food_guinea_fowl": "Kpini noo yi mali yili ni tooi nya o.",
-  "food_kenaf": "Bito vari n-nyɛ saha. Pahimi li ʒiɛri maa ni.",
-  "food_maize": "Chɛli atam kpuɣibu shee ni. Zaŋmiya li leei kɔringa la gbinni.",
-  "food_mango": "Mɔnguliya biya. Zaŋmi bia maa tim dabisili kam ka bɛ naai di nyɛla bɛ ʒirila vitamin A n-ti paai chira dimli ni.",
-  "food_milk_fermented": "Bihim kpɛma bela saa ni saa viɛla n-ti bilɛɣu maa.",
-  "food_milk_fresh": "Bihi palli ka niɣi dɔɣira.",
-  "food_millet": "Guŋgɔŋ nyɛla din viɛla pam, amaa lee booni li buchihili. Gumdi' pamli n-nyɛ kom.",
-  "food_moringa": "Piim’ omaŋa vari, n-zaŋ li niŋ kɔriŋga bee ʒiɛri. Di bi lan lari ka bi bili wum saha.",
-  "food_okra_dried": "Kɔrɛ kpɛm’ gbibi yuun’ muni puuni zaa. Pahimi li ʒiɛri maa zuɣu.",
-  "food_okra_fresh": "Paliga be daa ni pumpɔŋɔ.",
-  "food_onion": "alibarika din be zimsim ni.",
-  "food_orange": "Wanzam mali alaha. Dim niŋ tuya ni yino, vitamin C n-sɔŋdi ka kuriti kpɛbu.",
-  "food_pawpaw": "Paɣpaa beni. Daantaliga pirigili n limsiri bia maa vitamin A.",
-  "food_shea_butter": "Biliɛɣu din be bindirigu ni biɛla sɔŋdi niŋgbuŋ ni yihiri vitamin A.",
-  "food_shea_fruit": "Taa walli biya pam na pumpɔŋɔ n-chɛ n-chihi li. Dim salinli din nyaɣisi pam la, di yi paai feeranim’ din be tiŋli la shee.",
-  "food_sorghum": "Ŋariŋga din nyɛ kɔringa, kɔringa zuɣu.",
-  "food_soybean": "Ŋmɛmiya n-nɛm bɛ nina kpɛhi Brown puuni. Di chɛrimi ka kɔringa la kpeeni n-kpɛh’ o kpee.",
-  "food_sweet_potato": "Ŋariŋga duɣu bela vitamin A ni tooi zooi nyɛla din viɛla.",
-  "food_tom_brown": "Zaŋmiya kawana, kaman sima ni sima niŋ shɛlɔrigu, pa kawana n-kpalim. Kɔringa ŋɔ n-wɔɣa pam di zuɣu.",
-  "food_tomato": "Gumachuɣu bela saha, ka be alahachi pumpɔŋɔ. Niŋdi ba alali n-doya ba, bɛ sɔŋdi ka niŋgbuŋ nyɔɣiri li.",
-  "food_wild_greens": "Ayoya minii alijefu zaa kul zoorimi pumpɔŋɔ. Duɣimi ʒiɛri maa kpaŋ ŋ-ŋmabu n-kpɛri ʒiɛri saa ni.",
-  "food_yam": "Nyuli palli be ni. Zaŋmiya li leei bindirigu shee.",
-  "greet_consent": "Mbomi. Mabia yuli booni a puli ni. Lala saha suŋ n-nyɛ yɛligu? Chɛli di 1 zuɣu, di saha n-ti paai 2.",
-  "hotline_greet": "Mbomi. Mabia ŋɔ m-bɔŋɔ. Ti boli a labisi ka a boligu ŋɔ bahi yoli.",
-  "hotline_menu": "Kpahimmi dimbɔŋɔ yi nyɛ la barina. Kpahimmiya dolibu n-ti yɛli nɛɣu.",
-  "next_visit_prefix": "A kaabu nyaaŋa nyɛla din be.",
-  "no_answer": "Ti kɔŋ labisibu. A daalaafee tuntumdiba ni kaai a. Pumpɔŋɔ.",
-  "not_understood": "Gaafara, n daa bi baŋ lala.",
-  "nurse_connecting": "Dim suɣulo, gbibi. Ti zaŋ nyini tabili nɛma.",
-  "nurse_unavailable": "Ti kɔŋ nɛma paai nɛɣu pumpɔŋɔ. bɛ yɛli a daalaafee tuntumdiba, ka so n-lee boli a labisi. Pumpɔŋɔ.",
-  "red_closing": "M-paɣiri a. A daalaafee tuntumdiba yɛli shɛm pumpɔŋɔ, ka so ni bol’ a. Dim suɣulo, di doliya soli. Pumpɔŋɔ.",
-  "reschedule": "Di viɛla. Ti ni boli ya la saha shɛli. Pumpɔŋɔ.",
-  "weeks_1": "bakɔi yim.",
-  "weeks_2": "bakɔi ayi.",
-  "weeks_3": "bakɔi buta.",
-  "weeks_4": "bakɔi anahi.",
-  "weeks_5": "Bakɔi anu.",
-  "weeks_6": "bakɔi ayɔbu.",
-  "weeks_7": "bakɔi ayopɔin.",
-  "weeks_8": "bakɔi anii."
+  "birth_plan": {
+   "src": "Have you set aside money, arranged transport, and found someone to give blood? Press 1 for yes, 2 for not yet.",
+   "t": "A zaŋ liɣiri zali, ka zaŋ gbɔna n-nya ka so zaŋ ti ʒim? Zaŋmiya yim na sani, ka di na bi paai."
+  },
+  "birth_plan_no": {
+   "src": "Please arrange money, transport and a blood donor before the birth. Your health worker will help you.",
+   "t": "Dimya suɣulo, zaŋmiya liɣiri mini ʒim zaŋ chaŋ dɔɣibu polo. A daalaafee tuntumdiba ni sɔŋ a."
+  },
+  "birth_plan_yes": {
+   "src": "That is good. Keep the money and the transport ready.",
+   "t": "Di viɛla. Gbibi liɣiri maa mini lɔndo maa shili."
+  },
+  "closing": {
+   "src": "Thank you. We will send the date by message. Goodbye.",
+   "t": "M-paɣiri a. Ti ni ti zaŋ zilinli dihili na. Pumpɔŋɔ."
+  },
+  "danger_bleeding": {
+   "src": "Are you bleeding from the birth canal? Press 1 for yes, 2 for no.",
+   "t": "A dɔɣiri kambɔŋ ni ʒim mali a? Kpɛm’ 1 ni o sani, 2 zuɣu anahi."
+  },
+  "danger_convulsions": {
+   "src": "Have you had fits or convulsions? Press 1 for yes, 2 for no.",
+   "t": "A mali naŋgbankpeeni bee n-nyeri naŋgbaŋkpeeni? Kpɛm’ 1 ni o sani, 2 zuɣu anahi."
+  },
+  "danger_fever": {
+   "src": "Do you have a fever? Press 1 for yes, 2 for no.",
+   "t": "A mali fiiba? Kpɛm’ 1 ni o sani, 2 zuɣu anahi."
+  },
+  "danger_reduced_fetal_movement": {
+   "src": "Has the baby stopped moving, or moved much less? Press 1 for yes, 2 for no.",
+   "t": "Biliɛɣu maa chɛ n-chani bee n-chɛ n-naai? Kpɛm’ 1 ni o sani, 2 zuɣu anahi."
+  },
+  "danger_severe_headache": {
+   "src": "Do you have a bad headache, or blurred vision? Press 1 for yes, 2 for no.",
+   "t": "A mali zuɣuyaali talima bee ʒiɛ’ titali? Kpɛm’ 1 ni o sani, 2 zuɣu anahi."
+  },
+  "diet_breastmilk": {
+   "src": "Did the child take breast milk yesterday?",
+   "t": "Bia maa zaŋ bihim saha shɛli n-kpuɣi bihili?"
+  },
+  "diet_dairy": {
+   "src": "Did you take milk yesterday?",
+   "t": "A sa kpuɣi bihim?"
+  },
+  "diet_dark_leafy": {
+   "src": "Did you eat green leaves yesterday, like ayoyo or baobab leaf?",
+   "t": "A sa di momaha, kaman ayoyo bee tua?"
+  },
+  "diet_eggs": {
+   "src": "Did you eat an egg yesterday?",
+   "t": "A sa di galli?"
+  },
+  "diet_flesh": {
+   "src": "Did you eat fish or meat yesterday, even dried fish?",
+   "t": "A sa di zahim bee nimdi zaashee, hali zahim kuuya?"
+  },
+  "diet_grains": {
+   "src": "Did you eat porridge, tuo zaafi, rice or yam yesterday?",
+   "t": "A sa di kɔriŋga, tuafi, shinkaafa bee nyuli?"
+  },
+  "diet_intro": {
+   "src": "Now a few questions about what you ate yesterday.",
+   "t": "Pumpɔŋɔ biɛla ka a sa di bindirigu maa yɛla."
+  },
+  "diet_nuts_seeds": {
+   "src": "Did you eat groundnut or dawadawa yesterday?",
+   "t": "A sa di sima bee nyuya?"
+  },
+  "diet_other_fruit": {
+   "src": "Did you eat any other fruit yesterday?",
+   "t": "A sa di wala wala?"
+  },
+  "diet_other_fruit_veg": {
+   "src": "Did the child eat any other fruit or vegetable yesterday?",
+   "t": "Bia maa sa di wala bee ʒiɛvari’ shɛl’ la?"
+  },
+  "diet_other_veg": {
+   "src": "Did you eat okra, tomato or garden egg yesterday?",
+   "t": "Nyini n-saɣim diri maana bee kambɔŋ bee sima?"
+  },
+  "diet_pulses": {
+   "src": "Did you eat beans or bambara yesterday?",
+   "t": "A sa di tuya bee tuya?"
+  },
+  "diet_pulses_nuts_seeds": {
+   "src": "Did the child eat beans or groundnut yesterday?",
+   "t": "Bia maa sa ŋubi tuya bee sima?"
+  },
+  "diet_vita_fruit_veg": {
+   "src": "Did you eat mango, pawpaw or orange sweet potato yesterday?",
+   "t": "A sa di mango, gɔnda bee leemu diya?"
+  },
+  "driver_accepted": {
+   "src": "Thank you. Please go now. The health worker will call you.",
+   "t": "M-paɣiri a. Dim suɣulo, cham’ pɔi. Alaafeelana tuuntumdiba ni boli a."
+  },
+  "driver_declined": {
+   "src": "Thank you. We will ask another driver.",
+   "t": "M-paɣiri a. Ti ni bɔhi dɔriba so."
+  },
+  "driver_request": {
+   "src": "Urgent. A woman needs transport to the health centre. Press 1 to accept, 2 if you cannot come.",
+   "t": "Kpaŋmi noli. Paɣa bɔrila lɔri sɔŋdi n-chaŋ alaafee tudu polo. Kpalim’ napɔŋ ni a deei, 2 a yi ku tooi kana."
+  },
+  "escape_hint": {
+   "src": "At any time, press 9 to speak to a nurse.",
+   "t": "Saha shɛlikam, zaŋmi awei n-tɔɣisi nɛma yɛtɔɣa."
+  },
+  "food_bambara": {
+   "src": "Bambara beans keep from harvest and are filling. Cook them for the family this week.",
+   "t": "Bamba tuya ka chɛ atam ka pali. Duɣimi li tiri yili ŋɔ bakɔi ŋɔ."
+  },
+  "food_baobab_fruit": {
+   "src": "Mix baobab fruit powder into water or porridge. It is very high in vitamin C, which helps the body take up iron.",
+   "t": "Zaŋmi tua wala n-niŋ kom bee kɔringa. Vitamin C zuɣu ka di du pam, din sɔŋdi ka niŋgbuŋ zaŋ kuriti."
+  },
+  "food_baobab_leaf": {
+   "src": "Stir a handful of dried baobab leaf powder into the soup. The tree is in the compound and the powder keeps all year.",
+   "t": "Tua kuma tulaale zim kpɛm’ ʒiɛri ni. Tia maa be tiŋgban’ ni ka doli tabili yuun’ muni puuni zaa."
+  },
+  "food_cassava": {
+   "src": "Cassava is available. Use it as the base, but add groundnut or fish so it is not starch alone.",
+   "t": "Kambɔŋ beni. Zaŋmiya li leei bintaɣindili, amaa pahimi sima bee zahim din ni chɛ ka di pala taŋkpaɣu di kɔŋko."
+  },
+  "food_cowpea": {
+   "src": "Cook beans twice this week. They store well and build the blood.",
+   "t": "Duɣimi tuya diba ayi bakɔi ŋɔ. Bɛ dɔɣiri viɛnyɛliŋga m-me ʒim maa."
+  },
+  "food_dawadawa": {
+   "src": "Cook with dawadawa. It is rich in iron and it is already in most kitchens.",
+   "t": "Niŋmiya daadawa duɣibu. Kurugu buni ka di pun be jaara ni pam."
+  },
+  "food_dawadawa_fruit": {
+   "src": "The yellow pulp inside the dawadawa pod is sweet and free. Give it to the child instead of buying fruit.",
+   "t": "Dovihi tarili din be dɔyili puuni nyɛla din mali nyaɣisa ka mali biɛɣu. Zaŋmiya li ti bia maa ka pa ni wain tihi wala."
+  },
+  "food_dried_fish": {
+   "src": "Pound dried small fish into powder and stir a spoon into the porridge. It is cheap, and the whole fish gives both iron and calcium.",
+   "t": "Pɔŋ nyuuŋ zahim bihi n-zaŋ lɔɣiri duɣu n-niŋ kɔriŋga ni. Di mali alaha, ka ziŋa zaa tiri kuriti mini calcium zaa."
+  },
+  "food_eggs": {
+   "src": "One egg for the child, most days, if you can manage it.",
+   "t": "Gala yini n-ti bilɛɣu maa, dabisa pam, a yi tooi nyaŋ li."
+  },
+  "food_fresh_fish": {
+   "src": "Fresh fish is available in the rains.",
+   "t": "Ziŋ’ palli be saa maa ni."
+  },
+  "food_garden_egg": {
+   "src": "Garden eggs are cheap this season.",
+   "t": "Gaya deei muriga ŋ-ŋɔ."
+  },
+  "food_goat": {
+   "src": "Goat meat when there is money for it.",
+   "t": "Niŋgbun duɣili yi ti liɣiri kani."
+  },
+  "food_groundnut": {
+   "src": "Add a spoon of groundnut paste to the porridge. It stores from harvest and adds energy the child needs to grow.",
+   "t": "Zaŋmi sima niŋ kɔringa ni. Di tɔri atam kpuɣibu ni, ka pahi bia maa ni simdi ni o zooi nɔŋa."
+  },
+  "food_guinea_fowl": {
+   "src": "Guinea fowl when the household can afford it.",
+   "t": "Kpini noo yi mali yili ni tooi nya o."
+  },
+  "food_kenaf": {
+   "src": "Bito leaves are in season. Add them to the soup.",
+   "t": "Bito vari n-nyɛ saha. Pahimi li ʒiɛri maa ni."
+  },
+  "food_maize": {
+   "src": "Maize from the harvest store. Use it as the base of the porridge.",
+   "t": "Chɛli atam kpuɣibu shee ni. Zaŋmiya li leei kɔringa la gbinni."
+  },
+  "food_mango": {
+   "src": "Mangoes are ripe. Give the child one every day while they last — they carry vitamin A right into the lean months.",
+   "t": "Mɔnguliya biya. Zaŋmi bia maa tim dabisili kam ka bɛ naai di nyɛla bɛ ʒirila vitamin A n-ti paai chira dimli ni."
+  },
+  "food_milk_fermented": {
+   "src": "Fermented milk is around during the rains — good for the child.",
+   "t": "Bihim kpɛma bela saa ni saa viɛla n-ti bilɛɣu maa."
+  },
+  "food_milk_fresh": {
+   "src": "Fresh milk while the cattle are producing.",
+   "t": "Bihi palli ka niɣi dɔɣira."
+  },
+  "food_millet": {
+   "src": "Millet koko is fine as a base, but enrich it — plain koko alone is mostly water.",
+   "t": "Guŋgɔŋ nyɛla din viɛla pam, amaa lee booni li buchihili. Gumdi' pamli n-nyɛ kom."
+  },
+  "food_moringa": {
+   "src": "Pick moringa leaves, dry them, and add two spoons to the porridge or soup. It costs nothing and grows through the dry season.",
+   "t": "Piim’ omaŋa vari, n-zaŋ li niŋ kɔriŋga bee ʒiɛri. Di bi lan lari ka bi bili wum saha."
+  },
+  "food_okra_dried": {
+   "src": "Dried okra keeps all year. Add it to the soup.",
+   "t": "Kɔrɛ kpɛm’ gbibi yuun’ muni puuni zaa. Pahimi li ʒiɛri maa zuɣu."
+  },
+  "food_okra_fresh": {
+   "src": "Fresh okra is in the market now.",
+   "t": "Paliga be daa ni pumpɔŋɔ."
+  },
+  "food_onion": {
+   "src": "Onion in the stew.",
+   "t": "alibarika din be zimsim ni."
+  },
+  "food_orange": {
+   "src": "Oranges are cheap now. Eat one with the beans — the vitamin C helps the iron get in.",
+   "t": "Wanzam mali alaha. Dim niŋ tuya ni yino, vitamin C n-sɔŋdi ka kuriti kpɛbu."
+  },
+  "food_pawpaw": {
+   "src": "Pawpaw is available. Half a pawpaw covers the child's vitamin A.",
+   "t": "Paɣpaa beni. Daantaliga pirigili n limsiri bia maa vitamin A."
+  },
+  "food_shea_butter": {
+   "src": "A little shea butter in the food helps the body take up vitamin A.",
+   "t": "Biliɛɣu din be bindirigu ni biɛla sɔŋdi niŋgbuŋ ni yihiri vitamin A."
+  },
+  "food_shea_fruit": {
+   "src": "Shea fruit is ripe now and free. Eat the sweet pulp — it comes exactly when the stores are lowest.",
+   "t": "Taa walli biya pam na pumpɔŋɔ n-chɛ n-chihi li. Dim salinli din nyaɣisi pam la, di yi paai feeranim’ din be tiŋli la shee."
+  },
+  "food_sorghum": {
+   "src": "Sorghum from the store, as the porridge base.",
+   "t": "Ŋariŋga din nyɛ kɔringa, kɔringa zuɣu."
+  },
+  "food_soybean": {
+   "src": "Roast and grind soybean into the Tom Brown. It makes the same porridge far stronger.",
+   "t": "Ŋmɛmiya n-nɛm bɛ nina kpɛhi Brown puuni. Di chɛrimi ka kɔringa la kpeeni n-kpɛh’ o kpee."
+  },
+  "food_sweet_potato": {
+   "src": "Orange sweet potato is in season and is one of the best sources of vitamin A you can grow.",
+   "t": "Ŋariŋga duɣu bela vitamin A ni tooi zooi nyɛla din viɛla."
+  },
+  "food_tom_brown": {
+   "src": "Make Tom Brown with roasted maize, soybean and groundnut together — not maize alone. Same porridge, far more in it.",
+   "t": "Zaŋmiya kawana, kaman sima ni sima niŋ shɛlɔrigu, pa kawana n-kpalim. Kɔringa ŋɔ n-wɔɣa pam di zuɣu."
+  },
+  "food_tomato": {
+   "src": "Tomatoes are in season and cheap now. Cook them with iron-rich food — they help the body absorb it.",
+   "t": "Gumachuɣu bela saha, ka be alahachi pumpɔŋɔ. Niŋdi ba alali n-doya ba, bɛ sɔŋdi ka niŋgbuŋ nyɔɣiri li."
+  },
+  "food_wild_greens": {
+   "src": "Ayoyo and aleefu are growing now. Cook a handful into the soup — they cost nothing during the rains.",
+   "t": "Ayoya minii alijefu zaa kul zoorimi pumpɔŋɔ. Duɣimi ʒiɛri maa kpaŋ ŋ-ŋmabu n-kpɛri ʒiɛri saa ni."
+  },
+  "food_yam": {
+   "src": "New yam is in. Use it as the meal base.",
+   "t": "Nyuli palli be ni. Zaŋmiya li leei bindirigu shee."
+  },
+  "greet_consent": {
+   "src": "Hello. This is Mabia, about your pregnancy. Is this a good time to talk? Press 1 for yes, 2 for later.",
+   "t": "Mbomi. Mabia yuli booni a puli ni. Lala saha suŋ n-nyɛ yɛligu? Chɛli di 1 zuɣu, di saha n-ti paai 2."
+  },
+  "hotline_greet": {
+   "src": "Hello. This is Mabia. We are calling you back so this call costs you nothing.",
+   "t": "Mbomi. Mabia ŋɔ m-bɔŋɔ. Ti boli a labisi ka a boligu ŋɔ bahi yoli."
+  },
+  "hotline_menu": {
+   "src": "Press 1 if this is an emergency. Press 9 to speak to a nurse.",
+   "t": "Kpahimmi dimbɔŋɔ yi nyɛ la barina. Kpahimmiya dolibu n-ti yɛli nɛɣu."
+  },
+  "next_visit_prefix": {
+   "src": "Your next visit is in",
+   "t": "A kaabu nyaaŋa nyɛla din be."
+  },
+  "no_answer": {
+   "src": "We could not hear any answer. Your health worker will visit you. Goodbye.",
+   "t": "Ti kɔŋ labisibu. A daalaafee tuntumdiba ni kaai a. Pumpɔŋɔ."
+  },
+  "not_understood": {
+   "src": "Sorry, I did not get that.",
+   "t": "Gaafara, n daa bi baŋ lala."
+  },
+  "nurse_connecting": {
+   "src": "Please hold. We are connecting you to a nurse.",
+   "t": "Dim suɣulo, gbibi. Ti zaŋ nyini tabili nɛma."
+  },
+  "nurse_unavailable": {
+   "src": "We could not reach a nurse just now. Your health worker has been told, and someone will call you back. Goodbye.",
+   "t": "Ti kɔŋ nɛma paai nɛɣu pumpɔŋɔ. bɛ yɛli a daalaafee tuntumdiba, ka so n-lee boli a labisi. Pumpɔŋɔ."
+  },
+  "red_closing": {
+   "src": "Thank you. Your health worker is being told now, and someone will call you. Please do not travel alone. Goodbye.",
+   "t": "M-paɣiri a. A daalaafee tuntumdiba yɛli shɛm pumpɔŋɔ, ka so ni bol’ a. Dim suɣulo, di doliya soli. Pumpɔŋɔ."
+  },
+  "reschedule": {
+   "src": "That is fine. We will call you another time. Goodbye.",
+   "t": "Di viɛla. Ti ni boli ya la saha shɛli. Pumpɔŋɔ."
+  },
+  "weeks_1": {
+   "src": "one week.",
+   "t": "bakɔi yim."
+  },
+  "weeks_2": {
+   "src": "two weeks.",
+   "t": "bakɔi ayi."
+  },
+  "weeks_3": {
+   "src": "three weeks.",
+   "t": "bakɔi buta."
+  },
+  "weeks_4": {
+   "src": "four weeks.",
+   "t": "bakɔi anahi."
+  },
+  "weeks_5": {
+   "src": "five weeks.",
+   "t": "Bakɔi anu."
+  },
+  "weeks_6": {
+   "src": "six weeks.",
+   "t": "bakɔi ayɔbu."
+  },
+  "weeks_7": {
+   "src": "seven weeks.",
+   "t": "bakɔi ayopɔin."
+  },
+  "weeks_8": {
+   "src": "eight weeks.",
+   "t": "bakɔi anii."
+  }
  },
  "kusaal": {
-  "birth_plan": "Fʋ ɛɛnti gɔs ligidi bas, gɔsid lɔɔm, ka nyɛ sɔ' ye o tis ziim? Nwɛnɛ 1 tis ɛɛ, 2 nɛ na pʋ paae.",
-  "birth_plan_no": "Zaam zaŋi keŋ ligidi, lɔr nɛ ziim tisib ka pʋ du'am. Fʋ nimma'asim tʋmtʋmnib na sʋŋif.",
-  "birth_plan_yes": "Di an sʋm. Kpɛlim ligidi la nɛ lɔr la ti'ebʋg.",
-  "danger_bleeding": "Fʋ mɔr ziim nɛ du'a la ni? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi.",
-  "danger_convulsions": "Fʋ mɔr nɔŋgbannwa'ar bɛɛ fʋ mɔr vʋ'ʋsʋg? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi.",
-  "danger_fever": "Fʋ mɔr pɛbisim? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi.",
-  "danger_reduced_fetal_movement": "Biig la basi keŋ tuonɛ, bɛɛ kpɛn'ɛs bi'elaa? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi.",
-  "danger_severe_headache": "Fʋ mɔr zugbɛ'ɛd bɛ'ɛd, bɛɛ pʋ mɔr zin'ig? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi.",
-  "diet_intro": "Nananna bu'os biela zaŋi keŋ dinɛ ka fʋ sa diid.",
-  "greet_consent": "Mɔr sʋ'ʋŋa. Nɛ'ɛŋa anɛ Mabia, buon ye fʋ pʋʋg gɔsid. Nɛ’ɛŋa anɛ saŋa sʋŋ ye di pian’a? Nwɛnɛ 1 tis ɛɛ, 2 ti paae nya'aŋ. Saŋa wʋsa, kpɛm 9 ye o pian' nɛɛs.",
-  "next_visit_prefix": "Fʋ keŋ tuon ken la bɛnɛ ni.",
-  "reschedule": "Di anɛ dinɛ an sʋm. Ti na buonif saŋa lɛɛ. Sʋ'ʋŋa.",
-  "weeks_1": "Bakɔi yinne.",
-  "weeks_2": "Bakɔi ayi.",
-  "weeks_3": "Bakɔi atan'.",
-  "weeks_4": "Bakɔ anaasi.",
-  "weeks_5": "Bakɔi anu.",
-  "weeks_6": "Bakɔi ayuobʋ."
+  "birth_plan": {
+   "src": "Have you set aside money, arranged transport, and found someone to give blood? Press 1 for yes, 2 for not yet.",
+   "t": "Fʋ ɛɛnti gɔs ligidi bas, gɔsid lɔɔm, ka nyɛ sɔ' ye o tis ziim? Nwɛnɛ 1 tis ɛɛ, 2 nɛ na pʋ paae."
+  },
+  "birth_plan_no": {
+   "src": "Please arrange money, transport and a blood donor before the birth. Your health worker will help you.",
+   "t": "Zaam zaŋi keŋ ligidi, lɔr nɛ ziim tisib ka pʋ du'am. Fʋ nimma'asim tʋmtʋmnib na sʋŋif."
+  },
+  "birth_plan_yes": {
+   "src": "That is good. Keep the money and the transport ready.",
+   "t": "Di an sʋm. Kpɛlim ligidi la nɛ lɔr la ti'ebʋg."
+  },
+  "danger_bleeding": {
+   "src": "Are you bleeding from the birth canal? Press 1 for yes, 2 for no.",
+   "t": "Fʋ mɔr ziim nɛ du'a la ni? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi."
+  },
+  "danger_convulsions": {
+   "src": "Have you had fits or convulsions? Press 1 for yes, 2 for no.",
+   "t": "Fʋ mɔr nɔŋgbannwa'ar bɛɛ fʋ mɔr vʋ'ʋsʋg? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi."
+  },
+  "danger_fever": {
+   "src": "Do you have a fever? Press 1 for yes, 2 for no.",
+   "t": "Fʋ mɔr pɛbisim? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi."
+  },
+  "danger_reduced_fetal_movement": {
+   "src": "Has the baby stopped moving, or moved much less? Press 1 for yes, 2 for no.",
+   "t": "Biig la basi keŋ tuonɛ, bɛɛ kpɛn'ɛs bi'elaa? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi."
+  },
+  "danger_severe_headache": {
+   "src": "Do you have a bad headache, or blurred vision? Press 1 for yes, 2 for no.",
+   "t": "Fʋ mɔr zugbɛ'ɛd bɛ'ɛd, bɛɛ pʋ mɔr zin'ig? Nwɛnɛ 1 tis ɛɛ, 2 nɛ anaasi."
+  },
+  "diet_intro": {
+   "src": "Now a few questions about what you ate yesterday.",
+   "t": "Nananna bu'os biela zaŋi keŋ dinɛ ka fʋ sa diid."
+  },
+  "greet_consent": {
+   "src": "Hello. This is Mabia, about your pregnancy. Is this a good time to talk? Press 1 for yes, 2 for later.",
+   "t": "Mɔr sʋ'ʋŋa. Nɛ'ɛŋa anɛ Mabia, buon ye fʋ pʋʋg gɔsid. Nɛ’ɛŋa anɛ saŋa sʋŋ ye di pian’a? Nwɛnɛ 1 tis ɛɛ, 2 ti paae nya'aŋ. Saŋa wʋsa, kpɛm 9 ye o pian' nɛɛs."
+  },
+  "next_visit_prefix": {
+   "src": "Your next visit is in",
+   "t": "Fʋ keŋ tuon ken la bɛnɛ ni."
+  },
+  "reschedule": {
+   "src": "That is fine. We will call you another time. Goodbye.",
+   "t": "Di anɛ dinɛ an sʋm. Ti na buonif saŋa lɛɛ. Sʋ'ʋŋa."
+  },
+  "weeks_1": {
+   "src": "one week.",
+   "t": "Bakɔi yinne."
+  },
+  "weeks_2": {
+   "src": "two weeks.",
+   "t": "Bakɔi ayi."
+  },
+  "weeks_3": {
+   "src": "three weeks.",
+   "t": "Bakɔi atan'."
+  },
+  "weeks_4": {
+   "src": "four weeks.",
+   "t": "Bakɔ anaasi."
+  },
+  "weeks_5": {
+   "src": "five weeks.",
+   "t": "Bakɔi anu."
+  },
+  "weeks_6": {
+   "src": "six weeks.",
+   "t": "Bakɔi ayuobʋ."
+  }
  }
 }

@@ -835,3 +835,65 @@ def test_the_escape_hint_is_spoken_once_she_has_agreed(db):
     after_consent = ivr.advance(db, session, "1", "", "http://x/cb").xml
     assert "press 9" in after_consent.lower(), \
         "she was never told how to reach a person"
+
+
+# ------------------------------------------------- stale translations
+
+
+def test_rewritten_english_marks_its_translation_stale_not_current(db):
+    """A translation of wording nobody says any more is not a translation.
+
+    On a fresh database the cache is loaded with no memory of what it was
+    translated from, so without recording the source English the platform would
+    confidently speak a sentence rendering a prompt that had since been
+    rewritten -- and nothing would look wrong.
+    """
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    db.flush()
+    stale = (db.query(Phrase)
+               .filter(Phrase.language == "dagbani",
+                       Phrase.status == "stale").all())
+    assert stale, "no line reported stale despite the English being rewritten"
+    for phrase in stale:
+        assert phrase.previous_text, "the old wording was discarded"
+        assert phrase.translated_text, "the line was blanked instead of flagged"
+
+
+def test_a_stale_translation_is_never_silently_deleted(db):
+    """It cannot be regenerated while the provider quota is gone."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "dagbani",
+                        Phrase.key == "closing").first())
+    original = phrase.translated_text
+    assert original
+
+    phrase.source_text = "Something completely different."
+    db.flush()
+    pipeline.sync_catalogue(db, "dagbani")
+    db.expire_all()
+
+    again = db.get(Phrase, phrase.id)
+    assert again.status == "stale"
+    assert again.previous_text == original, "the old translation was lost"
+
+
+def test_stale_lines_are_re_translated_when_credits_return(db):
+    """They must be queued for another attempt, not left as permanent debris."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "dagbani")
+    db.flush()
+    pending = (db.query(Phrase)
+                 .filter(Phrase.language == "dagbani",
+                         Phrase.status.in_(["pending", "failed", "stale"]))
+                 .count())
+    out = pipeline.translate_pending(db, "dagbani", limit=0)
+    assert out["remaining"] == pending

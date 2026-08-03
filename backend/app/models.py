@@ -410,8 +410,12 @@ class Phrase(Base):
     category = Column(String, default="script")          # script | diet | food
     source_text = Column(Text, nullable=False)           # the English
     translated_text = Column(Text)
+    # What this said before the English changed. Kept because a translation
+    # cannot be regenerated on demand when the provider quota is gone, and
+    # discarding one to keep a status column tidy is a bad trade.
+    previous_text = Column(Text)
     status = Column(String, default="pending")
-    # pending | translated | failed | unsupported | reviewed
+    # pending | translated | failed | unsupported | reviewed | stale
     provider = Column(String)                            # khaya | manual
     error = Column(Text)
     reviewed_by = Column(String, ForeignKey("users.id"))

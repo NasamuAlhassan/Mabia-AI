@@ -47,16 +47,16 @@ SCRIPT = {
     "weeks_4": "four weeks.", "weeks_5": "five weeks.", "weeks_6": "six weeks.",
     "weeks_7": "seven weeks.", "weeks_8": "eight weeks.",
     "closing": "Thank you. We will send the date by message. Goodbye.",
-    "red_closing": "Thank you. Your health worker is being told now, and someone "
-                   "will call you. Please do not travel alone. Goodbye.",
+    "red_closing": "Thank you. Your health worker is being told now. Someone "
+                   "will call you. Do not travel alone.",
     "nurse_connecting": "Please hold. We are connecting you to a nurse.",
     "nurse_unavailable": "We could not reach a nurse just now. Your health worker "
                          "has been told, and someone will call you back. Goodbye.",
     "hotline_greet": "Hello. This is Mabia. We are calling you back so this call "
                      "costs you nothing.",
     "hotline_menu": "Press 1 if this is an emergency. Press 9 to speak to a nurse.",
-    "driver_request": "Urgent. A woman needs transport to the health centre. "
-                      "Press 1 to accept, 2 if you cannot come.",
+    "driver_request": "Urgent. A woman needs transport now. Press 1 to accept, "
+                      "2 if you cannot.",
     "driver_accepted": "Thank you. Please go now. The health worker will call you.",
     "driver_declined": "Thank you. We will ask another driver.",
     "not_understood": "Sorry, I did not get that.",

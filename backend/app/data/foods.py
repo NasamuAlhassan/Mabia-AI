@@ -90,12 +90,10 @@ FOODS = [
           iron=True, local={"dagbani": "zangala"}),
     _food("shea_fruit", "Shea fruit", [5, 6, 7], "free", "gathered",
           ["other_fruit"], ["other_fruit_veg"],
-          "Shea fruit is ripe now and free. Eat the sweet pulp — it comes exactly "
-          "when the stores are lowest."),
+          "Shea fruit is ripe and free. Eat the sweet pulp."),
     _food("dawadawa_fruit", "Dawadawa fruit pulp", [4, 5, 6], "free", "gathered",
           ["other_fruit"], ["other_fruit_veg"],
-          "The yellow pulp inside the dawadawa pod is sweet and free. Give it to "
-          "the child instead of buying fruit.", vitamin_c=True),
+          "The pulp inside a dawadawa pod is sweet and free. Give it to the child.", vitamin_c=True),
     _food("wild_greens", "Ayoyo and aleefu leaves", [6, 7, 8, 9], "free", "gathered",
           ["dark_leafy"], ["vita_fruit_veg"],
           "Ayoyo and aleefu are growing now. Cook a handful into the soup — they "
@@ -128,8 +126,8 @@ FOODS = [
           "far stronger."),
     _food("dried_fish", "Dried small fish", YEAR, "low", "purchased",
           ["flesh"], ["flesh"],
-          "Pound dried small fish into powder and stir a spoon into the porridge. "
-          "It is cheap, and the whole fish gives both iron and calcium.",
+          "Pound dried small fish and stir a spoon into the porridge. It is cheap "
+          "and builds the blood.",
           iron=True, local={"dagbani": "amane"}),
     _food("okra_dried", "Dried okra", YEAR, "low", "stored",
           ["other_veg"], ["other_fruit_veg"],
@@ -156,8 +154,8 @@ FOODS = [
     _food("yam", "Yam", [7, 8, 9, 10, 11, 12], "low", "grown",
           ["grains"], ["grains"], "New yam is in. Use it as the meal base."),
     _food("cassava", "Cassava", YEAR, "low", "grown",
-          ["grains"], ["grains"], "Cassava is available. Use it as the base, but "
-          "add groundnut or fish so it is not starch alone.",
+          ["grains"], ["grains"], "Use cassava as the base, with groundnut or fish so it is not starch "
+          "alone.",
           regions=["Northern", "Savannah", "North East"]),
     _food("sweet_potato", "Orange-fleshed sweet potato", [9, 10, 11, 12], "low", "grown",
           ["vita_fruit_veg"], ["vita_fruit_veg"],
@@ -169,8 +167,7 @@ FOODS = [
           ["other_veg"], ["other_fruit_veg"], "Garden eggs are cheap this season."),
     _food("mango", "Mango", [3, 4, 5, 6], "free", "gathered",
           ["vita_fruit_veg"], ["vita_fruit_veg"],
-          "Mangoes are ripe. Give the child one every day while they last — they "
-          "carry vitamin A right into the lean months.", vitamin_c=True),
+          "Mangoes are ripe. Give the child one every day while they last.", vitamin_c=True),
     _food("baobab_fruit", "Baobab fruit", [12, 1, 2, 3, 4], "free", "gathered",
           ["other_fruit"], ["other_fruit_veg"],
           "Mix baobab fruit powder into water or porridge. It is very high in "
@@ -181,8 +178,7 @@ FOODS = [
           vitamin_c=True),
     _food("tomato", "Tomato", [11, 12, 1, 2, 3], "medium", "purchased",
           ["other_veg"], ["other_fruit_veg"],
-          "Tomatoes are in season and cheap now. Cook them with iron-rich food — "
-          "they help the body absorb it.", vitamin_c=True),
+          "Tomatoes are cheap now. Cook them with beans to help the iron get in.", vitamin_c=True),
     _food("onion", "Onion", YEAR, "low", "purchased",
           ["other_veg"], ["other_fruit_veg"], "Onion in the stew."),
     _food("orange", "Orange", [11, 12, 1, 2], "low", "purchased",

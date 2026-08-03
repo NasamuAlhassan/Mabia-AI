@@ -72,6 +72,10 @@ Root directory `backend`, from `render.yaml`:
 | `SEED_ON_START` | `1` | Seeds the demo caseload into an empty database. |
 | `PYTHON_VERSION` | `3.11` | |
 | `DATABASE_URL` | *unset* | Unset means SQLite on the service's disk. See the note below. |
+| `GHANANLP_API_KEY` | *set in the dashboard* | Khaya translation and speech. Absent, the Voice screen reports Khaya as unconfigured and the platform runs on whatever audio is already recorded. |
+| `AT_USERNAME` / `AT_API_KEY` | *set in the dashboard* | Africa's Talking. Absent, calls are simulator-only — enough to demonstrate the whole flow, not enough to reach a real handset. |
+
+Those last three are declared in `render.yaml` with `sync: false`, which means Render prompts for the value and never stores it in the repository. **Neither is set on the live deployment today**, so `GET /api/language/status` returns `khaya_configured: false` and no call can reach a real phone. That is a deliberate, visible state rather than a silent failure — but it is the one thing standing between the demo and a live call.
 
 **On storage:** the API runs on SQLite by default, which on Render's free plan means the disk is wiped on every deploy and the demo caseload is re-seeded. That is right for a demo and wrong for a pilot. To keep data between deploys, uncomment the `databases` block and the `DATABASE_URL` entry in `render.yaml` — `psycopg2-binary` is already installed, and `config.py` handles the legacy `postgres://` scheme Render still hands out.
 

@@ -29,6 +29,19 @@ services:
       # call; without it a call connects and then falls silent.
       - key: PUBLIC_BASE_URL
         value: https://mabia-api.onrender.com
+      # Translation and speech. Set these in the Render dashboard, not here --
+      # sync:false means Render prompts for the value and never stores it in
+      # the repository. Absent, the platform still runs and the Voice screen
+      # reports Khaya as unconfigured rather than failing quietly, which is
+      # what the live deployment is doing today.
+      - key: GHANANLP_API_KEY
+        sync: false
+      # Telephony. Absent, calls are simulator-only -- enough to demonstrate
+      # the whole flow, not enough to reach a real handset.
+      - key: AT_USERNAME
+        sync: false
+      - key: AT_API_KEY
+        sync: false
       # Shared secret so the cron below can trigger the outreach run without a
       # user session. Nothing else accepts it.
       - key: CRON_TOKEN

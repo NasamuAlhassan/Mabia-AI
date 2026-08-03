@@ -194,12 +194,35 @@ def sync_catalogue(db: Session, language: str) -> int:
             phrase.source_text = row["text"]
             phrase.status = "stale"
             if phrase.audio_source in ("khaya_tts", "mms_tts", "shipped"):
+                # Move the file aside rather than only clearing the row. It used
+                # to be cleared and then re-adopted from disk by the call three
+                # lines below, in the same function, so the invalidation was a
+                # no-op and the clip came back relabelled "shipped".
+                _retire_audio(phrase)
                 phrase.audio_path = None
                 phrase.audio_source = None
     db.flush()
     load_cached(db, language)
     adopt_audio_on_disk(db, language)
     return added
+
+
+def _retire_audio(phrase: Phrase) -> None:
+    """Take a clip out of service without destroying it.
+
+    Renamed rather than deleted: the recording is still a real human voice
+    saying real words, and with the quota exhausted it cannot be regenerated
+    for weeks. It keeps a .retired suffix so adopt_audio_on_disk will not pick
+    it up and a person can listen and decide.
+    """
+    if not phrase.audio_path:
+        return
+    try:
+        current = AUDIO_ROOT / phrase.audio_path
+        if current.exists():
+            current.rename(current.with_suffix(current.suffix + ".retired"))
+    except OSError:
+        pass
 
 
 def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
@@ -284,18 +307,34 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
                         "These lines need a recorded human voice.".format(language),
                 "needs_recording": needs_recording_count(db, language)}
 
-    blocked = set()
+    blocked = {}
     for phrase in rows:
-        if len(phrase.translated_text or "") > MAX_SPOKEN_CHARS:
+        # The 100-character ceiling was measured against Khaya's live service.
+        # It is not MMS's limit -- MMS synthesises 400 characters happily -- so
+        # applying it above the route loop refused lines the local model could
+        # have spoken today, which is why eight long Kusaal lines were reported
+        # unspeakable while a working route sat right there.
+        length = len(phrase.translated_text or "")
+        usable = [r for r in routes
+                  if r not in blocked
+                  and not (r == "khaya" and length > MAX_SPOKEN_CHARS)]
+        if not usable:
             failed += 1
-            phrase.error = ("Too long to synthesise ({} characters). Shorten "
-                            "the English and re-translate.".format(
-                                len(phrase.translated_text)))
+            if length > MAX_SPOKEN_CHARS and set(routes) <= {"khaya"}:
+                phrase.error = ("Too long for Khaya ({} characters, limit {}). "
+                                "Shorten the English and re-translate."
+                                .format(length, MAX_SPOKEN_CHARS))
+            else:
+                phrase.error = "; ".join(
+                    "{}: {}".format(r, blocked[r]) for r in routes
+                    if r in blocked) or "No route available."
             continue
 
-        for route in routes:
-            if route in blocked:
-                continue
+        # Reset per phrase. This used to be module-flow state carried across
+        # iterations, so once every route was blocked the last error seen was
+        # written onto phrases that had never been sent to any provider.
+        last_error = None
+        for route in usable:
             if route == "khaya":
                 result = khaya.synthesise(phrase.translated_text, language)
                 ok, audio, error = result.ok, result.audio, result.error
@@ -303,23 +342,40 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
                 ok, audio, error = mms.synthesise(phrase.translated_text, language)
 
             if ok:
+                try:
+                    write_audio(db, phrase, audio, source=route + "_tts")
+                except ValueError as exc:
+                    # A 200 that is not audio. Khaya's documented failure mode
+                    # is an Azure "unavailable" HTML page served with a 200, and
+                    # letting that raise out of here used to 500 the endpoint
+                    # and roll back the whole batch -- leaving every clip
+                    # already written orphaned on disk with no database row,
+                    # ready for the next sync to adopt as "shipped".
+                    last_error = "{} returned something that is not audio: {}".format(
+                        route, exc)
+                    blocked[route] = last_error
+                    continue
                 made += 1
-                write_audio(db, phrase, audio, source=route + "_tts")
+                last_error = None
                 break
-            note = error
+
+            last_error = error
             # A quota or an outage applies to every remaining line, not just
             # this one. Stop asking that provider and try the next route.
             if error and ("quota" in error.lower() or "429" in error
-                          or "unavailable" in error.lower()):
-                blocked.add(route)
+                          or "unavailable" in error.lower()
+                          or "not installed" in error.lower()):
+                blocked[route] = error
         else:
             failed += 1
-            phrase.error = note
+            phrase.error = last_error
+        note = last_error or note
 
     db.flush()
     return {"language": language, "generated": made, "failed": failed,
             "note": note, "routes": routes,
             "blocked": sorted(blocked),
+            "blocked_because": dict(blocked),
             "needs_recording": needs_recording_count(db, language)}
 
 
@@ -387,9 +443,18 @@ def needs_recording_count(db: Session, language: str) -> int:
                       Phrase.audio_path.is_(None)).count())
 
 
+# Which lines every ordinary outreach call plays, as opposed to lines that
+# depend on the month, her gaps, the week she is at, or a flow she may never
+# enter. Recording the first set is what makes a call sound like her language;
+# recording a food message she will not be offered until July does not.
+CORE_CATEGORIES = ("script", "diet")
+
+
 def status(db: Session, language: str) -> Dict:
     rows = db.query(Phrase).filter(Phrase.language == language).all()
     total = len(rows)
+    core = [p for p in rows if p.category in CORE_CATEGORIES]
+    core_with_audio = sum(1 for p in core if p.audio_path)
     translated = sum(1 for p in rows if p.status in ("translated", "reviewed"))
     stale = sum(1 for p in rows if p.status == "stale")
     reviewed = sum(1 for p in rows if p.status == "reviewed")
@@ -407,9 +472,18 @@ def status(db: Session, language: str) -> Dict:
         "needs_recording": total - with_audio,
         "can_translate": language in SPEAKABLE,
         "note": khaya.UNSUPPORTED_NOTE if language in RECORD_ONLY else None,
-        # What a caller actually hears today, which is the only number that
-        # matters for the claim "we speak her language".
+        # Two numbers, because one was misleading. spoken_coverage counts every
+        # line in the catalogue equally, including thirty-four food messages of
+        # which a given call plays exactly one, and eight next-visit intervals
+        # of which it plays one. core_coverage is the spine every outreach call
+        # walks -- greeting, consent, the five danger signs, the diet block, the
+        # closing -- and it is the number behind any claim that we speak her
+        # language.
         "spoken_coverage": round(100.0 * with_audio / total, 1) if total else 0.0,
+        "core_total": len(core),
+        "core_with_audio": core_with_audio,
+        "core_coverage": (round(100.0 * core_with_audio / len(core), 1)
+                          if core else 0.0),
         "too_long": too_long_to_speak(db, language),
         "routes": providers_for(language),
         "mms": mms.describe() if mms.available_for(language) else None,

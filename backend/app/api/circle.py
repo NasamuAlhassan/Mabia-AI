@@ -112,6 +112,20 @@ def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
     return get_circle(patient_id, db, user)
 
 
+VEHICLES = ("ambulance", "car", "motorking", "motorbike", "bicycle", "tricycle")
+
+
+def _vehicle_from(detail: Optional[str]) -> str:
+    """A known vehicle if the note names one, otherwise the commonest."""
+    text = (detail or "").lower()
+    for vehicle in VEHICLES:
+        if vehicle in text:
+            return vehicle
+    if "moto" in text or "okada" in text:
+        return "motorbike"
+    return "motorking"
+
+
 def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember) -> None:
     """Put the driver she named into the roster the cascade actually reads.
 
@@ -123,15 +137,18 @@ def _ensure_driver(db: Session, patient_id: str, member: CareCircleMember) -> No
     patient = db.get(Patient, patient_id)
     existing = db.query(Driver).filter(Driver.phone == member.phone).first()
     if existing is not None:
-        # Already in the roster. Do not overwrite a registered driver's own
-        # details from a household form -- just make sure he is reachable.
-        if not existing.available:
-            existing.available = True
+        # Already in the roster, and nothing here may edit him. Flipping
+        # available back to True was the worst of it: a driver who had marked
+        # himself off duty was put back on call by any worker saving his number
+        # on any patient's form, and would then be rung for an emergency he had
+        # said he could not take.
         return
     db.add(Driver(
         name=member.name,
         phone=member.phone,
         community=(patient.community if patient else None) or "unknown",
-        vehicle_type=(member.detail or "").strip().lower() or "motorking",
+        # detail is a free-text relationship field on every other role, so
+        # taking it raw wrote "his brother's motorbike" in as a vehicle type.
+        vehicle_type=_vehicle_from(member.detail),
         available=True,
     ))

@@ -8,6 +8,7 @@ from typing import Dict, List
 
 from .. import prompts
 from ..data.foods import FOODS
+from ..engines.nutrition import ANAEMIA_TIPS
 from ..engines.nutrition import MDD_CHILD, MDD_W, questions
 
 # Lines that are never spoken to a caller on their own.
@@ -54,6 +55,14 @@ def catalogue() -> List[Dict[str, str]]:
     for food in FOODS:
         out.append({"key": "food_" + food["key"], "category": "food",
                     "text": food["message"]})
+
+    # The anaemia tips ride alongside the food advice on the same turn. They
+    # were the only spoken lines in the system with no catalogue entry, so they
+    # could never be translated and never be recorded -- and at 44.2% maternal
+    # anaemia in the Upper West they are said on a great many calls.
+    for index, tip in enumerate(ANAEMIA_TIPS):
+        out.append({"key": "anaemia_tip_{}".format(index + 1),
+                    "category": "nutrition", "text": tip})
 
     return out
 

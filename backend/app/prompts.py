@@ -71,3 +71,12 @@ def weeks_key(weeks: int) -> str:
 
 def line(key: str) -> str:
     return SCRIPT.get(key, "")
+
+
+def anaemia_tip_key(tip: str):
+    """Which catalogue line this tip is, so a recording of it can be played."""
+    from .engines.nutrition import ANAEMIA_TIPS
+    for index, known in enumerate(ANAEMIA_TIPS):
+        if known == tip:
+            return "anaemia_tip_{}".format(index + 1)
+    return None

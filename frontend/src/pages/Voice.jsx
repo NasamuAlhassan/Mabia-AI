@@ -99,10 +99,18 @@ export default function Voice() {
                 fifty-odd prompts of it did not exist. Green means most of it
                 is there; amber means it is being worked on; red means the
                 call would be in English. */}
-            <span className={`badge ${coverageTone(here.spoken_coverage)}`}>
-              {here.spoken_coverage}% spoken
+            <span className={`badge ${coverageTone(here.core_coverage)}`}>
+              {here.core_coverage}% of the call
             </span>
           </div>
+
+          <p className="muted tiny" style={{ marginTop: '.5rem' }}>
+            {here.core_with_audio} of {here.core_total} lines every call plays
+            are recorded. Across the whole catalogue — including the thirty-four
+            food messages, of which a call plays one — it is
+            {' '}{here.spoken_coverage}%. The first number is the one behind any
+            claim that we speak her language.
+          </p>
 
           <div className="counts" style={{ marginTop: '.7rem' }}>
             <div className="count">

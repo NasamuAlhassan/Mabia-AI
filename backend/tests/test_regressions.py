@@ -1400,3 +1400,210 @@ def test_a_column_added_after_the_database_existed_is_added_to_it(tmp_path):
     with engine.begin() as c:
         assert c.execute(text("SELECT COUNT(*) FROM phrases")).scalar() == 1, \
             "existing rows were lost"
+
+
+def _pending_kusaal(db, n):
+    """n Kusaal lines that are translated and waiting for a voice."""
+    from app.language import pipeline
+    from app.models import Phrase
+
+    pipeline.sync_catalogue(db, "kusaal")
+    rows = db.query(Phrase).filter(Phrase.language == "kusaal").limit(n).all()
+    for index, row in enumerate(rows):
+        row.translated_text = "ka{} ba".format(index)
+        row.status = "translated"
+        row.audio_path = None
+        row.audio_source = None
+        row.error = None
+    db.flush()
+    return rows
+
+
+# ------------------------------------------ what a recording can actually reach
+
+
+def test_the_food_advice_can_be_played_as_a_recording(db):
+    """34 food clips existed in the catalogue and no call could request one.
+
+    The nutrition message was passed into the turn as a bare string with no
+    key, so the utterance layer had nothing to look up -- the entire output of
+    the nutrition engine was structurally unable to use its own recordings.
+    """
+    from app.telephony import ivr, service as tel
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    session, _ = tel.start_call(db, phone=patient.phone, patient_id=patient.id,
+                                purpose="outreach", language="dagbani")
+    db.flush()
+
+    advice = ivr._nutrition_message(db, session)
+    assert advice, "no advice produced at all"
+    key = advice[0][0]
+    assert key and key.startswith("food_"), \
+        "the advice carries no catalogue key: {!r}".format(advice[0])
+
+    from app.language import catalogue
+    assert key in catalogue.by_key(), \
+        "{} is not a line anyone can record".format(key)
+
+
+def test_the_anaemia_tips_are_lines_someone_can_record(db):
+    """The only spoken text in the system with no catalogue entry at all."""
+    from app import prompts
+    from app.engines.nutrition import ANAEMIA_TIPS
+    from app.language import catalogue
+
+    known = catalogue.by_key()
+    for tip in ANAEMIA_TIPS:
+        key = prompts.anaemia_tip_key(tip)
+        assert key, "no key for: {}".format(tip[:40])
+        assert key in known
+
+
+def test_coverage_separates_the_spine_from_the_long_tail(db):
+    """One number mixed lines every call plays with lines almost none do."""
+    from app.language import pipeline
+
+    pipeline.sync_catalogue(db, "dagbani")
+    db.flush()
+    st = pipeline.status(db, "dagbani")
+
+    assert st["core_total"] < st["total"], "everything counted as core"
+    assert st["core_total"] > 10, "the spine is implausibly short"
+    # The bleeding recording is on the spine, so core coverage must see it.
+    assert st["core_with_audio"] >= 1
+    assert st["core_coverage"] > st["spoken_coverage"], \
+        "the long tail is still dragging the headline number down"
+
+
+def test_a_provider_returning_html_does_not_lose_the_whole_batch(db, monkeypatch):
+    """Khaya's documented failure is an Azure error page served with a 200.
+
+    write_audio raises on that, and nothing caught it: the endpoint 500ed, the
+    transaction rolled back, and every clip already written was left orphaned
+    on disk with no row -- ready for the next sync to adopt as "shipped".
+    """
+    from app.language import khaya, mms, pipeline
+
+    _pending_kusaal(db, 5)
+
+    wav = (b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt "
+           + (16).to_bytes(4, "little") + (1).to_bytes(2, "little")
+           + (1).to_bytes(2, "little") + (8000).to_bytes(4, "little")
+           + (16000).to_bytes(4, "little") + (2).to_bytes(2, "little")
+           + (16).to_bytes(2, "little") + b"data" + (2000).to_bytes(4, "little")
+           + b"\x00" * 2000)
+    calls = {"n": 0}
+
+    def flaky(text, language):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            return True, b"<html>Web App - Unavailable</html>" * 100, None
+        return True, wav, None
+
+    monkeypatch.setattr(mms, "synthesise", flaky)
+    monkeypatch.setattr(pipeline, "providers_for", lambda language: ["mms"])
+
+    out = pipeline.speak_translated(db, "kusaal", limit=5)
+    assert out["generated"] >= 2, "the good clips were lost with the bad one"
+    assert "mms" in out["blocked"]
+    assert "not audio" in out["blocked_because"]["mms"]
+
+    for path in (pipeline.AUDIO_ROOT / "kusaal").glob("*.wav"):
+        if path.stat().st_size == len(wav):
+            path.unlink()
+
+
+def test_an_error_is_never_pinned_on_a_phrase_that_was_never_sent(db, monkeypatch):
+    """`note` was module-flow state, carried across loop iterations."""
+    from app.language import mms, pipeline
+
+    _pending_kusaal(db, 6)
+    monkeypatch.setattr(pipeline, "providers_for", lambda language: ["mms"])
+    monkeypatch.setattr(mms, "synthesise",
+                        lambda t, l: (False, b"", "quota exhausted until Tuesday"))
+
+    out = pipeline.speak_translated(db, "kusaal", limit=6)
+    assert out["failed"] >= 2
+    from app.models import Phrase
+    errors = [p.error for p in db.query(Phrase)
+              .filter(Phrase.language == "kusaal", Phrase.error.isnot(None)).all()]
+    # Once the route is blocked, later phrases are told the route was blocked --
+    # not handed the last error from a request they were never part of.
+    assert any("mms" in (e or "") for e in errors)
+
+
+def test_the_khaya_length_ceiling_is_not_applied_to_the_local_model(db, monkeypatch):
+    """A limit measured against one service was refusing work for another.
+
+    MMS synthesises 400 characters happily. Applying Khaya's 100-character
+    ceiling above the route loop is why eight long Kusaal lines were reported
+    unspeakable while a working route sat right there.
+    """
+    from app.language import mms, pipeline
+    from app.models import Phrase
+
+    long_one = _pending_kusaal(db, 1)[0]
+    long_one.translated_text = "ka " * 60          # 180 characters
+    db.flush()
+
+    seen = {}
+    monkeypatch.setattr(pipeline, "providers_for", lambda language: ["mms"])
+    monkeypatch.setattr(mms, "synthesise",
+                        lambda t, l: (seen.setdefault("len", len(t)),
+                                      (False, b"", "no model here"))[1])
+    pipeline.speak_translated(db, "kusaal", limit=1)
+    assert seen.get("len", 0) > pipeline.MAX_SPOKEN_CHARS, \
+        "the local route never saw the long line"
+
+
+def test_an_off_duty_driver_is_not_put_back_on_call_by_a_household_form(client, db, auth):
+    """He would then be rung for an emergency he had said he could not take."""
+    driver = db.query(Driver).filter(Driver.phone == "+233200000021").first()
+    driver.available = False
+    db.commit()
+
+    patient = db.query(Patient).filter(Patient.name == "Zeinab Mahama").first()
+    client.put("/api/circle/{}".format(patient.id), headers=auth,
+               json={"role": "driver", "name": "Iddrisu Mohammed",
+                     "phone": "+233200000021", "detail": "uncle"})
+    db.expire_all()
+    assert db.query(Driver).filter(
+        Driver.phone == "+233200000021").first().available is False
+
+
+def test_a_relationship_note_is_not_written_in_as_a_vehicle(client, db, auth):
+    """detail is free text on every other role; it was taken raw as a type."""
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    client.put("/api/circle/{}".format(patient.id), headers=auth,
+               json={"role": "driver", "name": "Yakubu B",
+                     "phone": "+233240000977",
+                     "detail": "his brother's motorbike"})
+    db.expire_all()
+    created = db.query(Driver).filter(Driver.phone == "+233240000977").first()
+    assert created.vehicle_type == "motorbike"
+
+
+def test_a_rejected_recording_stops_being_played(client, db, auth):
+    """The IVR finds clips on disk, so clearing the row alone changed nothing."""
+    from app.language import pipeline
+    from app.models import Phrase
+    from app.telephony import ivr
+
+    pipeline.sync_catalogue(db, "dagbani")
+    phrase = (db.query(Phrase)
+                .filter(Phrase.language == "dagbani",
+                        Phrase.key == "danger_bleeding").first())
+    assert phrase.audio_path, "fixture expects a shipped clip here"
+    assert ivr._audio_url("", "dagbani", "danger_bleeding")
+
+    r = client.delete("/api/language/phrases/{}/audio".format(phrase.id),
+                      headers=auth)
+    assert r.status_code == 200
+    assert ivr._audio_url("", "dagbani", "danger_bleeding") is None, \
+        "the caller still hears the take that was just rejected"
+
+    # Retired, not destroyed -- it is still a real voice saying real words.
+    retired = list((pipeline.AUDIO_ROOT / "dagbani").glob("danger_bleeding.*.retired"))
+    assert retired
+    retired[0].rename(str(retired[0]).replace(".retired", ""))

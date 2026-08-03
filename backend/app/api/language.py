@@ -123,12 +123,30 @@ async def upload_audio(phrase_id: str, file: UploadFile = File(...),
     phrase = db.get(Phrase, phrase_id)
     if not phrase:
         raise HTTPException(404, "No such phrase")
-    data = await file.read()
+    # Read in chunks and stop at the ceiling, rather than materialising the
+    # whole body first and checking afterwards -- a single large POST used to be
+    # a straightforward way to exhaust the server's memory.
+    limit = 5 * 1024 * 1024
+    chunks, total = [], 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(400, "That recording is too large for a prompt.")
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
     if len(data) < 512:
         raise HTTPException(400, "That recording is empty or far too short.")
-    if len(data) > 5 * 1024 * 1024:
-        raise HTTPException(400, "That recording is too large for a prompt.")
-    pipeline.write_audio(db, phrase, data, source="recorded")
+    try:
+        pipeline.write_audio(db, phrase, data, source="recorded")
+    except ValueError as exc:
+        # These reasons are written for the person holding the microphone --
+        # "this is webm, which plays in a browser but not on a phone call". An
+        # uncaught raise turned all of them into an unexplained 500.
+        raise HTTPException(400, str(exc))
     db.commit()
     return {"ok": True, "audio_url": "/audio/" + phrase.audio_path,
             "bytes": phrase.audio_bytes}
@@ -140,6 +158,11 @@ def clear_audio(phrase_id: str, db: Session = Depends(get_db),
     phrase = db.get(Phrase, phrase_id)
     if not phrase:
         raise HTTPException(404, "No such phrase")
+    # The IVR finds clips by looking on disk, not by reading this row, so
+    # clearing the row alone left the caller hearing the take that was just
+    # rejected. The file is renamed rather than deleted -- it is still a real
+    # voice saying real words, and someone may want it back.
+    pipeline._retire_audio(phrase)
     phrase.audio_path = None
     phrase.audio_source = None
     phrase.audio_bytes = None

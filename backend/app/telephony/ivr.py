@@ -396,16 +396,14 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
         session.answers = answers
         session.transcript = transcript
         db.flush()
-        message = _nutrition_message(db, session)
-        answers["nutrition_message"] = message
+        advice = _nutrition_message(db, session)
+        answers["nutrition_message"] = " ".join(t for _, t in advice)
         session.answers = answers
         session.state = BIRTH_PLAN
         db.flush()
-        bkey, btext = prompts.BIRTH_PLAN_QUESTION
-        # The nutrition message is already translated by _nutrition_message;
-        # the birth-plan question is a catalogue line, so it is looked up.
         return Turn(ask_parts(db, base_url, language,
-                              [(None, message), (bkey, btext)], callback_url))
+                              list(advice) + [prompts.BIRTH_PLAN_QUESTION],
+                              callback_url))
 
     # --- birth preparedness ------------------------------------------------
     if state == BIRTH_PLAN:
@@ -445,7 +443,15 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
                 finished=True, note="completed")
 
 
-def _nutrition_message(db: Session, session: CallSession) -> str:
+def _nutrition_message(db: Session, session: CallSession):
+    """The advice, as (catalogue key, text) so a recording of it can play.
+
+    This used to return a bare string, which was then passed into the turn with
+    no key at all. The catalogue holds a food_<key> line and a recording for
+    every food in the table -- thirty-four of them, the entire output of the
+    nutrition engine -- and not one could ever be played, because nothing told
+    the utterance layer which line it was looking at.
+    """
     patient = db.get(Patient, session.patient_id) if session.patient_id else None
     diet = (session.answers or {}).get("diet", {})
     present = [group for group, eaten in diet.items() if eaten]
@@ -480,14 +486,17 @@ def _nutrition_message(db: Session, session: CallSession) -> str:
         exclude=previous,
     )
     if rec is None:
-        return ""
+        return []
     if rec.food:
         session.answers = dict(session.answers or {},
                                nutrition_food=rec.food["key"])
-    text = rec.message
+
+    # The anaemia tip is a separate catalogue line with its own recording, so
+    # it stays a separate part rather than being glued onto the advice.
+    parts = [("food_" + rec.food["key"] if rec.food else None, rec.message)]
     if rec.anaemia_tip:
-        text = "{} {}".format(text, rec.anaemia_tip)
-    return text
+        parts.append((prompts.anaemia_tip_key(rec.anaemia_tip), rec.anaemia_tip))
+    return parts
 
 
 def _weeks_to_next_visit(db: Session, session: CallSession) -> int:

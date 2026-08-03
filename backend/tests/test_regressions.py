@@ -3875,3 +3875,23 @@ def test_the_patient_record_carries_whether_the_alert_sent(client, db, auth):
     assert body["emergencies"], "fixture expects an emergency on her record"
     assert "alert_failed" in body["emergencies"][0]
     assert "validated_at" in body["emergencies"][0]
+
+
+def test_every_catalogue_category_is_reachable_in_the_workbench(db):
+    """A category with no chip is a set of lines no recordist can find.
+
+    The anaemia tips were added under "nutrition" and the Voice screen offered
+    four categories, none of them that one -- so three lines spoken on a great
+    many calls were invisible unless she happened to pick Everything.
+    """
+    import pathlib
+    import re
+    from app.language import catalogue
+
+    produced = {row["category"] for row in catalogue.catalogue()}
+    source = (pathlib.Path(__file__).resolve().parents[2]
+              / "frontend" / "src" / "pages" / "Voice.jsx").read_text()
+    offered = set(re.findall(r"key: '([a-z_]*)'", source))
+    missing = produced - offered
+    assert not missing, \
+        "no way to filter to: {} — those lines cannot be found".format(missing)

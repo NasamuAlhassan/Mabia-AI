@@ -16,11 +16,15 @@ const LANGUAGES = [
   { key: 'gonja', label: 'Gonja' },
 ]
 
+// Every category the catalogue actually produces. The anaemia tips were added
+// under "nutrition" and had no chip, so three lines spoken on a great many
+// calls were invisible to a recordist unless she happened to pick Everything.
 const CATEGORIES = [
   { key: '', label: 'Everything' },
   { key: 'script', label: 'Call script' },
   { key: 'diet', label: 'Diet questions' },
   { key: 'food', label: 'Nutrition advice' },
+  { key: 'nutrition', label: 'Anaemia tips' },
 ]
 
 export default function Voice() {

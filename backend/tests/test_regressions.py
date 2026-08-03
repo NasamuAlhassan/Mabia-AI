@@ -4005,3 +4005,40 @@ def test_a_closed_emergency_is_never_nudged(db):
 
     assert services.nudge_stale_emergencies(db)["nudged"] == 0
     assert emergency.status == "closed"
+
+
+def test_a_field_added_after_first_seed_reaches_an_existing_database(db):
+    """seed() returns early when users exist -- correctly, it must never
+    overwrite real work -- so a deployment whose disk survives a release keeps
+    the caseload it was first seeded with for ever. Distance is the one that
+    matters: without it the risk engine's access rule cannot fire on the live
+    demo, and that rule is a third of the argument this platform makes.
+    """
+    from app import seed as seedmod
+
+    for patient in db.query(Patient).all():
+        patient.minutes_to_facility = None
+        patient.road_condition = None
+    db.flush()
+
+    seedmod.seed(db)
+    db.flush()
+
+    amina = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    assert amina.minutes_to_facility == 95
+    assert amina.road_condition == "poor"
+
+
+def test_the_backfill_never_overwrites_something_already_recorded(db):
+    """It fills blanks only. A worker's own entry is not demo data."""
+    from app import seed as seedmod
+
+    patient = db.query(Patient).filter(Patient.name == "Rahma Osman").first()
+    patient.minutes_to_facility = 12
+    patient.road_condition = "good"
+    db.flush()
+
+    seedmod.seed(db)
+    db.flush()
+    assert patient.minutes_to_facility == 12, "it rewrote a recorded value"
+    assert patient.road_condition == "good"

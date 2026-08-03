@@ -18,6 +18,7 @@ DEFAULT_PIN = "1234"
 
 def seed(db: Session) -> None:
     if db.query(User).count() > 0:
+        backfill(db)
         return
 
     today = dt.date.today()
@@ -72,16 +73,16 @@ def seed(db: Session) -> None:
     # actually weighs.
     people = [
         # (name, phone, community, weeks, affordability, taboos, minutes, road)
-        ("Amina Fuseini", "+233240000001", "Kpale", 32, "low", ["eggs"], 95, "poor"),
-        ("Zeinab Mahama", "+233240000002", "Kpale", 24, "low", [], 40, "fair"),
-        ("Hawa Sulemana", "+233240000003", "Kpale", 36, "medium", [], 55, "poor"),
-        ("Memuna Iddris", "+233240000004", "Sagnarigu", 12, "low", [], 20, "good"),
-        ("Rahma Osman", "+233240000005", "Kpale", 28, "low", ["goat"], 70, "fair"),
+        ("Amina Fuseini", "+233240000001", "Kpale", 32, "low", ["eggs"]),
+        ("Zeinab Mahama", "+233240000002", "Kpale", 24, "low", []),
+        ("Hawa Sulemana", "+233240000003", "Kpale", 36, "medium", []),
+        ("Memuna Iddris", "+233240000004", "Sagnarigu", 12, "low", []),
+        ("Rahma Osman", "+233240000005", "Kpale", 28, "low", ["goat"]),
     ]
 
     created = []
-    for (name, phone, community, weeks, affordability, taboos,
-         minutes, road) in people:
+    for name, phone, community, weeks, affordability, taboos in people:
+        minutes, road = DEMO_GEOGRAPHY[name]
         edd = today + dt.timedelta(weeks=(40 - weeks))
         patient = Patient(
             name=name, phone=phone, secondary_phone="+233240000099",
@@ -192,3 +193,48 @@ def seed(db: Session) -> None:
                                  source="ivr")
 
     db.flush()
+
+
+# ------------------------------------------------------- an existing database
+
+# Distance and road for the seeded caseload, keyed by name. Kept here rather
+# than inline so the backfill below and the first-run seed cannot drift.
+DEMO_GEOGRAPHY = {
+    "Amina Fuseini": (95, "poor"),
+    "Zeinab Mahama": (40, "fair"),
+    "Hawa Sulemana": (55, "poor"),
+    "Memuna Iddris": (20, "good"),
+    "Rahma Osman": (70, "fair"),
+}
+
+
+def backfill(db: Session) -> None:
+    """Fill in demo facts added after a database was first seeded.
+
+    seed() returns early when users already exist, which is right -- it must
+    never overwrite real work. But a deployment whose disk survives a release
+    then keeps the caseload it was first seeded with for ever, so a field added
+    later is simply absent on the live demo. Distance is the one that matters:
+    without it the risk engine's access rule cannot fire, and that rule is a
+    third of the argument this platform makes.
+
+    Only ever fills a blank. Anything already recorded is left alone, so this
+    cannot quietly rewrite something a worker entered.
+    """
+    changed = 0
+    for name, (minutes, road) in DEMO_GEOGRAPHY.items():
+        patient = db.query(Patient).filter(Patient.name == name).first()
+        if patient is None:
+            continue
+        if patient.minutes_to_facility is None:
+            patient.minutes_to_facility = minutes
+            changed += 1
+        if not patient.road_condition:
+            patient.road_condition = road
+            changed += 1
+
+    if changed:
+        db.flush()
+        for patient in db.query(Patient).all():
+            ev.refresh_state(db, patient.id)
+        print("seed: filled in {} missing demo fields".format(changed))

@@ -19,6 +19,7 @@ from ..models import (CallbackRequest, CallSession, Dispatch, Emergency,
 from ..security import current_user
 from ..telephony import ivr
 from ..telephony import service as tel
+from .. import phones
 
 router = APIRouter(prefix="/api/telephony", tags=["telephony"])
 
@@ -68,8 +69,11 @@ async def voice(request: Request, db: Session = Depends(get_db)):
     session_id = (form.get("sessionId") or "").strip()
     is_active = str(form.get("isActive") or "1").strip()
     dtmf = (form.get("dtmfDigits") or "").strip() or None
-    caller = (form.get("callerNumber") or "").strip()
-    destination = (form.get("destinationNumber") or "").strip()
+    # Normalised before anything is looked up with it. A caller ID that does
+    # not match the number she was enrolled under means she is rung back as an
+    # anonymous stranger: no record, no language, no pregnancy, no history.
+    caller = phones.normalise(form.get("callerNumber")) or ""
+    destination = phones.normalise(form.get("destinationNumber")) or ""
     direction = (form.get("direction") or "outbound").strip().lower()
 
     base = tel.base_url(db)
@@ -260,7 +264,7 @@ async def ussd(request: Request, db: Session = Depends(get_db)):
     phone = (form.get("phoneNumber") or "").strip()
     text = (form.get("text") or "").strip()
 
-    user = db.query(User).filter(User.phone == phone).first()
+    user = db.query(User).filter(User.phone == phones.normalise(phone)).first()
     if not user:
         db.commit()
         return Response("END This number is not registered with Mabia.",
@@ -356,7 +360,7 @@ def run_callbacks(db: Session = Depends(get_db),
 def simulate_flash(phone: str, db: Session = Depends(get_db),
                    user: User = Depends(current_user)):
     """Stand-in for a missed call, so the call-back path is demonstrable."""
-    patient = db.query(Patient).filter(Patient.phone == phone).first()
+    patient = db.query(Patient).filter(Patient.phone == phones.normalise(phone)).first()
     db.add(CallbackRequest(phone=phone, patient_id=patient.id if patient else None))
     db.commit()
     return {"ok": True, "phone": phone,

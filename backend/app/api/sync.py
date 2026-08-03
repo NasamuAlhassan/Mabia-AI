@@ -16,6 +16,7 @@ from .. import events as ev
 from ..db import get_db
 from ..models import Event, Patient, User
 from ..security import current_user
+from .. import phones
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -58,7 +59,7 @@ def _materialise_enrolment(db: Session, item, user: User) -> Optional[str]:
         return None
 
     existing = (db.query(Patient)
-                  .filter(Patient.phone == phone,
+                  .filter(Patient.phone == phones.normalise(phone),
                           Patient.status == "active").first())
     if existing is not None:
         return existing.id

@@ -3,6 +3,7 @@ import { BackLink } from '../App'
 import CriticalAction from '../lib/CriticalAction'
 import { useData, Empty, Failed, Skeleton } from '../lib/data'
 import { reasonLabel } from './Worklist'
+import { display as phone } from '../phone'
 
 // Delay 3, made about time.
 //
@@ -90,7 +91,7 @@ function Case({ row, onDone, arrived = false }) {
       {row.driver ? (
         <p className="tiny">
           {row.driver.name} · {row.driver.vehicle} ·{' '}
-          <a href={`tel:${row.driver.phone}`}>{row.driver.phone}</a>
+          <a href={`tel:${row.driver.phone}`}>{phone(row.driver.phone)}</a>
           {row.driver.location && <> · last reported near {row.driver.location}</>}
         </p>
       ) : (
@@ -99,7 +100,7 @@ function Case({ row, onDone, arrived = false }) {
 
       {row.patient?.phone && (
         <p className="tiny">
-          Her phone: <a href={`tel:${row.patient.phone}`}>{row.patient.phone}</a>
+          Her phone: <a href={`tel:${row.patient.phone}`}>{phone(row.patient.phone)}</a>
         </p>
       )}
 

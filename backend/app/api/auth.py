@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import User
 from ..security import create_token, current_user, verify_pin
+from .. import phones
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -17,7 +18,10 @@ class LoginIn(BaseModel):
 
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.phone == body.phone.strip()).first()
+    # Accept the number however it was typed; a worker signing in at 2am
+    # should not have to remember which of four spellings she enrolled with.
+    user = db.query(User).filter(
+        User.phone == phones.normalise(body.phone)).first()
     if not user or not verify_pin(body.pin, user.pin_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "That phone number and PIN do not match.")

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, post } from '../api'
+import { display as phone } from '../phone'
 
 // The same webhook a real handset drives, reached from a browser. Nothing here
 // is a mock of the IVR -- it is the IVR.
@@ -73,7 +74,7 @@ export default function Simulator() {
               <span className="badge plain">{h.purpose}</span>
             </div>
             <div className="muted tiny" style={{ marginBottom: '.5rem' }}>
-              {h.phone} · {h.language}
+              {phone(h.phone)} · {h.language}
             </div>
             <div className="screen" role="status" aria-live="polite">
               {active === h.session_id ? screen

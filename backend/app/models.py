@@ -11,7 +11,7 @@ overwrites. That is why a worker who syncs three days late cannot destroy data.
 import datetime as dt
 
 from sqlalchemy import (JSON, Boolean, Column, Date, DateTime, Float, ForeignKey,
-                        Integer, String, Text, UniqueConstraint)
+                        Integer, String, Text, UniqueConstraint, event)
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import relationship
 
@@ -440,3 +440,41 @@ class Setting(Base):
     key = Column(String, primary_key=True)
     value = Column(Text)
     updated_at = Column(DateTime, default=now, onupdate=now)
+
+
+# ---------------------------------------------------- one form for a number
+
+# Every phone column in this file, normalised on the way in, wherever the write
+# came from. Doing it in the API handlers alone was not enough: the seed writes
+# directly, the sync endpoint writes from an offline device's payload, the
+# telephony layer writes from a provider callback, and each of those is a place
+# for a number to enter in a different spelling and then never match a lookup
+# again. Attaching it to the mapper means there is exactly one way a phone
+# number can be stored, and no new code path can opt out of it by accident.
+_PHONE_COLUMNS = {
+    "users": ("phone",),
+    "facilities": ("phone",),
+    "drivers": ("phone",),
+    "patients": ("phone", "secondary_phone"),
+    "call_sessions": ("phone",),
+    "messages": ("to_phone",),
+    "callback_requests": ("phone",),
+    "care_circle": ("phone",),
+}
+
+
+def _normalise_phones(mapper, connection, target):
+    from .phones import normalise
+
+    for field in _PHONE_COLUMNS.get(target.__tablename__, ()):
+        current = getattr(target, field, None)
+        if current:
+            fixed = normalise(current)
+            if fixed and fixed != current:
+                setattr(target, field, fixed)
+
+
+for _model in Base.registry.mappers:
+    if _model.class_.__tablename__ in _PHONE_COLUMNS:
+        event.listen(_model.class_, "before_insert", _normalise_phones)
+        event.listen(_model.class_, "before_update", _normalise_phones)

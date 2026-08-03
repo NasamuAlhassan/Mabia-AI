@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, put } from '../api'
+import { display as phone } from '../phone'
 
 // Who else has to be reached for her to actually leave the compound.
 //
@@ -98,7 +99,7 @@ export default function CareCircle({ patientId }) {
                 </div>
                 {m.detail && <div className="muted tiny">{m.detail}</div>}
                 {m.phone && (
-                  <div className="tiny"><a href={`tel:${m.phone}`}>{m.phone}</a></div>
+                  <div className="tiny"><a href={`tel:${m.phone}`}>{phone(m.phone)}</a></div>
                 )}
                 <div className="delay">{m.delay}</div>
                 <button className="small quiet" style={{ marginTop: 8 }}

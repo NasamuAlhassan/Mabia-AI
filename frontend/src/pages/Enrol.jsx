@@ -43,8 +43,10 @@ export default function Enrol() {
   function validate() {
     const next = {}
     if (!f.name.trim()) next.name = 'Her name is needed.'
-    if (!/^\+?\d{9,15}$/.test(f.phone.replace(/\s/g, ''))) {
-      next.phone = 'A phone number like +233240000000.'
+    // Accept it however she writes it -- 024 000 0001, 024-000-0001,
+    // +233 24 000 0001. The server settles on one form; she should not have to.
+    if (!/^\+?\d{9,15}$/.test(f.phone.replace(/[\s()\-.]/g, ''))) {
+      next.phone = 'A phone number like 024 000 0001.'
     }
     if (!f.community.trim()) next.community = 'Which community?'
     setErrors(next)
@@ -154,7 +156,7 @@ export default function Enrol() {
             <div className="field">
               <label htmlFor="p">Her phone</label>
               <input id="p" inputMode="tel" value={f.phone} onChange={set('phone')}
-                     placeholder="+233…" aria-invalid={!!errors.phone} />
+                     placeholder="024 000 0001" aria-invalid={!!errors.phone} />
               {errors.phone && <div className="error">{errors.phone}</div>}
             </div>
             <div className="field">

@@ -157,8 +157,12 @@ def seed(db: Session) -> None:
         CareCircleMember(patient_id=amina.id, role="driver",
                          name="Iddrisu Mohammed", phone="+233200000021",
                          detail="Motorking", confirmed=True),
+        # A payer is a person, not a scheme. The card matters, but so does
+        # who is carrying it -- "NHIS" as a name told the facility nothing
+        # about who to expect or ring.
         CareCircleMember(patient_id=amina.id, role="payer",
-                         name="NHIS", detail="NHIS 1234567890", confirmed=True),
+                         name="Mahamadu Fuseini", phone="+233240000101",
+                         detail="NHIS 1234567890", confirmed=True),
         CareCircleMember(patient_id=amina.id, role="emergency",
                          name="Salamatu Fuseini", phone="+233240000102",
                          detail="Sister", confirmed=True),

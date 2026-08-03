@@ -1663,3 +1663,89 @@ def test_the_family_is_not_alarmed_before_a_clinician_has_looked(db):
     services.validate_emergency(db, emergency, worker)
     db.flush()
     assert sent() == before + 1
+
+
+# ------------------------------------------------- one number, four spellings
+
+
+def test_the_same_handset_written_four_ways_is_one_number(db):
+    """Every lookup here is an exact string match and nothing normalised them.
+
+    A CHO writes 0240000001, Africa's Talking reports +233240000001, and a
+    pasted contact says 233 24 000 0001. Same handset, three strings, no match
+    between any of them.
+    """
+    from app import phones
+
+    for spelling in ("0240000001", "+233240000001", "233240000001",
+                     "024 000 0001", "00233240000001", "240000001",
+                     "+233 24-000-0001"):
+        assert phones.normalise(spelling) == "+233240000001", \
+            "{!r} did not normalise".format(spelling)
+
+    # A number we cannot parse is kept, not discarded -- someone meant to type it.
+    assert phones.normalise("+14155550100") == "+14155550100"
+    assert phones.normalise("") is None and phones.normalise(None) is None
+
+    # And shown back the way it is written locally.
+    assert phones.display("+233240000001") == "024 000 0001"
+
+
+def test_no_write_path_can_store_an_unnormalised_number(db):
+    """Fixing the API handlers was not enough: seed, sync and the telephony
+    callback all write directly, and each is a different spelling entering."""
+    patient = Patient(name="Typed Locally", phone="024 111 2233",
+                      secondary_phone="0201112233", community="Kpale",
+                      region="Northern", consent=True)
+    driver = Driver(name="Roster Man", phone="0201112299", community="Kpale")
+    db.add_all([patient, driver])
+    db.flush()
+
+    assert patient.phone == "+233241112233"
+    assert patient.secondary_phone == "+233201112233"
+    assert driver.phone == "+233201112299"
+
+    patient.phone = "0555000111"
+    db.flush()
+    assert patient.phone == "+233555000111", "an update slipped past"
+
+
+def test_she_is_recognised_when_she_flashes_from_her_own_handset(client, db, auth):
+    """The hotline looks her up by caller ID. A miss means a stranger.
+
+    She is then rung back with no record, no pregnancy, no danger-sign history
+    and no language preference -- the platform speaks English at a woman it has
+    called eight times.
+    """
+    from app.models import CallbackRequest
+
+    patient = db.query(Patient).filter(Patient.name == "Amina Fuseini").first()
+    patient.language = "dagbani"
+    db.commit()
+
+    # The trunk-zero spelling, which is how the number is written in Ghana.
+    local = "0" + patient.phone[len("+233"):]
+    r = client.post("/api/telephony/voice", data={
+        "sessionId": "flash-probe", "isActive": "1",
+        "callerNumber": local, "destinationNumber": "+233200000099",
+        "direction": "inbound", "dtmfDigits": ""})
+    assert r.status_code == 200
+    assert "Reject" in r.text, "she was answered, so she was charged airtime"
+
+    db.expire_all()
+    queued = (db.query(CallbackRequest)
+                .filter(CallbackRequest.status == "pending",
+                        CallbackRequest.phone == patient.phone).first())
+    assert queued is not None
+    assert queued.phone == patient.phone, "stored under a spelling that matches nothing"
+    assert queued.patient_id == patient.id, \
+        "she was queued as an anonymous caller from her own handset"
+
+
+def test_a_worker_can_sign_in_with_the_number_as_she_writes_it(client, db):
+    """At two in the morning she should not have to guess which of four
+    spellings she was enrolled under."""
+    r = client.post("/api/auth/login",
+                    json={"phone": "0200000001", "pin": "1234"})
+    assert r.status_code == 200, r.text
+    assert r.json().get("token")

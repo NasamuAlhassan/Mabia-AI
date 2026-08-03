@@ -10,6 +10,7 @@ from .. import events
 from ..db import get_db
 from ..models import CareCircleMember, Driver, Patient, User
 from ..security import current_user, patient_in_reach
+from .. import phones
 
 router = APIRouter(prefix="/api/circle", tags=["care circle"])
 
@@ -94,7 +95,7 @@ def upsert(patient_id: str, body: MemberIn, db: Session = Depends(get_db),
     was = {"name": member.name, "phone": member.phone, "detail": member.detail}
 
     member.name = body.name.strip()
-    member.phone = (body.phone or "").strip() or None
+    member.phone = phones.normalise(body.phone)
     member.detail = (body.detail or "").strip() or None
     if body.confirmed and not member.confirmed:
         member.confirmed_at = dt.datetime.utcnow()

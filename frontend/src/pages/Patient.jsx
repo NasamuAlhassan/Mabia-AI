@@ -7,6 +7,7 @@ import CriticalAction from '../lib/CriticalAction'
 import CareCircle from '../components/CareCircle'
 import { useData, Failed, Skeleton } from '../lib/data'
 import { reasonLabel } from './Worklist'
+import { display as phone } from '../phone'
 
 // Three states per sign, not two.
 //
@@ -51,7 +52,7 @@ export default function Patient() {
       </div>
       <p className="muted">
         {p.community} · speaks {p.language} ·{' '}
-        <a href={`tel:${p.phone}`}>{p.phone}</a>
+        <a href={`tel:${p.phone}`}>{phone(p.phone)}</a>
         {p.edd && <> · due {new Date(p.edd).toLocaleDateString()}</>}
       </p>
 

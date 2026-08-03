@@ -11,6 +11,7 @@ from .. import services
 from ..db import get_db
 from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
+from .. import phones
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -64,7 +65,7 @@ def enrol(body: EnrolIn, db: Session = Depends(get_db),
         if prior is not None and prior.patient_id:
             return detail(prior.patient_id, db, user)
     same_phone = (db.query(Patient)
-                    .filter(Patient.phone == body.phone.strip(),
+                    .filter(Patient.phone == phones.normalise(body.phone),
                             Patient.status == "active").first())
     if same_phone is not None:
         return detail(same_phone.id, db, user)

@@ -67,26 +67,18 @@ services:
       #     name: mabia-db
       #     property: connectionString
 
-  # The loop the product is named for. Without this, contacts are scheduled at
-  # enrolment and nobody is ever actually called.
-  - type: cron
-    name: mabia-outreach
-    runtime: python
-    rootDir: backend
-    plan: free
-    schedule: "0 8 * * *"        # 08:00 UTC daily — morning in Ghana
-    buildCommand: pip install -r requirements.txt
-    startCommand: >
-      python -c "import os,urllib.request;
-      r=urllib.request.Request('https://mabia-api.onrender.com/api/contacts/run-due',
-      method='POST', headers={'X-Cron-Token': os.environ['CRON_TOKEN']});
-      print(urllib.request.urlopen(r, timeout=120).read().decode())"
-    envVars:
-      - key: CRON_TOKEN
-        fromService:
-          name: mabia-api
-          type: web
-          envVarKey: CRON_TOKEN
+  # The scheduler that used to live here is now .github/workflows/outreach.yml.
+  #
+  # It was declared as `type: cron` with `plan: free`, and Render has no free
+  # plan for a cron service -- "free not a valid plan for service type cron".
+  # That is a blueprint validation error, not a runtime one, so the whole file
+  # was rejected on every sync and the job has never run in production. The
+  # loop this product is named for was configured, committed, and dead.
+  #
+  # A scheduled GitHub Actions workflow does the same POST on the same
+  # schedule, costs nothing, and lives next to the code it triggers. It also
+  # wakes the free-plan web service each morning, which the Render cron would
+  # have done as a side effect and which nothing else does.
 
 # databases:
 #   - name: mabia-db

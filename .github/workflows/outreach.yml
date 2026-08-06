@@ -1,0 +1,56 @@
+# The loop the product is named for.
+#
+# Contacts are scheduled at enrolment. Without something calling this every
+# morning they sit in the table and nobody is ever actually rung -- the whole
+# WHO eight-contact model becomes a list of dates.
+#
+# This lived in render.yaml as a cron service on the free plan, which Render
+# does not offer for cron: the blueprint failed validation on every sync and
+# the job never ran once in production. Here it costs nothing and it is next to
+# the code it triggers.
+#
+# Set CRON_TOKEN as a repository secret, matching the value Render generated
+# for the mabia-api service (Render dashboard -> mabia-api -> Environment).
+
+name: Morning outreach
+
+on:
+  schedule:
+    # 08:00 UTC daily. Ghana is UTC+0 year round, so this is 8am there.
+    - cron: "0 8 * * *"
+  workflow_dispatch:          # so a person can run it during a demo
+
+jobs:
+  run-due:
+    runs-on: ubuntu-latest
+    steps:
+      # The free web service sleeps after fifteen minutes and takes up to a
+      # minute to wake. Calling run-due cold would time out and the morning's
+      # contacts would be skipped silently, so it is woken first and given
+      # time to come up.
+      - name: Wake the API
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
+                   https://mabia-api.onrender.com/api/health || true)
+            echo "attempt $i: $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "API did not wake" >&2
+          exit 1
+
+      - name: Place every call that is due
+        env:
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
+        run: |
+          if [ -z "$CRON_TOKEN" ]; then
+            echo "CRON_TOKEN secret is not set — nothing would be authorised" >&2
+            exit 1
+          fi
+          # Fail the run on a non-2xx. A scheduler that reports success while
+          # placing no calls is worse than no scheduler, because nobody looks.
+          response=$(curl -sS --fail-with-body --max-time 180 \
+            -X POST https://mabia-api.onrender.com/api/contacts/run-due \
+            -H "X-Cron-Token: $CRON_TOKEN")
+          echo "$response"

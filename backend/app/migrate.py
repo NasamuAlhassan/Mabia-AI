@@ -20,9 +20,24 @@ from sqlalchemy.engine import Engine
 from .db import Base
 
 
-def _sql_type(column) -> str:
+def _sql_type(column, dialect=None) -> str:
+    """The column's type in the dialect of the database being altered.
+
+    compile() with no dialect renders SQLAlchemy's generic SQL, which is close
+    enough to SQLite to be indistinguishable from correct on a laptop and wrong
+    on Postgres: a DateTime comes out as DATETIME, and Postgres has no such
+    type. `ALTER TABLE emergencies ADD COLUMN nudged_at DATETIME` then fails
+    with `type "datetime" does not exist`, this runs at startup, and so the
+    service does not boot at all -- while Render keeps serving the last build
+    that did. Every deploy failed for three days and the site stayed up, which
+    is the most expensive way for a deployment to be broken.
+
+    The file already warned about exactly this class of bug for rowid and fixed
+    it there. It was still doing it here.
+    """
     try:
-        return column.type.compile()
+        return (column.type.compile(dialect=dialect) if dialect is not None
+                else column.type.compile())
     except Exception:
         return "TEXT"
 
@@ -81,7 +96,7 @@ def add_missing_columns(engine: Engine) -> list:
             # So: add it nullable, then backfill the default the models
             # declare, then report honestly which of the two happened.
             statement = "ALTER TABLE {} ADD COLUMN {} {}".format(
-                table.name, column.name, _sql_type(column))
+                table.name, column.name, _sql_type(column, engine.dialect))
             with engine.begin() as connection:
                 connection.execute(text(statement))
 

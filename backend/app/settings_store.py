@@ -173,12 +173,47 @@ def readiness(db: Session) -> Dict[str, object]:
     base_url = get(db, "public_base_url")
     test_phone = get(db, "test_phone")
 
+    environment = get(db, "at_environment")
+
     checks.append({"name": "API key", "ok": bool(api_key),
                    "detail": "Set" if api_key else "Missing — nothing will send"})
-    checks.append({"name": "Username", "ok": bool(username),
-                   "detail": username or "Missing"})
-    checks.append({"name": "Voice number", "ok": bool(voice_number),
-                   "detail": voice_number or "Missing — outbound calls cannot be placed"})
+
+    # Filled is not the same as coherent, and this panel was only ever checking
+    # filled. "sandbox" is the literal username of the sandbox environment and
+    # cannot authenticate against the live host, so this pairing is a certain
+    # 401 -- and it showed as five green ticks, which sends someone hunting a
+    # network fault for an hour. It costs nothing to know: no call has to be
+    # placed to see that these two disagree.
+    sandbox_name = (username or "").strip().lower() == "sandbox"
+    mismatched = bool(username) and (
+        (environment == "live" and sandbox_name)
+        or (environment == "sandbox" and not sandbox_name))
+    if mismatched and environment == "live":
+        detail = ("'sandbox' is the sandbox environment's own username and "
+                  "cannot sign in to live. Use your live app's username, or "
+                  "set the environment back to sandbox.")
+    elif mismatched:
+        detail = ("In sandbox the username must be the word 'sandbox'. Set it "
+                  "to that, or switch the environment to live.")
+    else:
+        detail = username or "Missing"
+    checks.append({"name": "Username", "ok": bool(username) and not mismatched,
+                   "detail": detail})
+
+    # A voice number is one Africa's Talking issued to you; the platform calls
+    # out FROM it. Someone's own mobile in this field is the commonest way to
+    # fill it in wrongly, because it is the number they are holding -- but that
+    # is the handset the test should ring, which is the field below.
+    own_handset = bool(voice_number) and voice_number == test_phone
+    checks.append({
+        "name": "Voice number",
+        "ok": bool(voice_number) and not own_handset,
+        "detail": ("This is the same number as the test phone. A voice number "
+                   "is one Africa's Talking issued for calling out FROM; your "
+                   "own handset goes in Test phone, which is what gets rung."
+                   if own_handset
+                   else voice_number
+                   or "Missing — outbound calls cannot be placed")})
     checks.append({
         "name": "Public callback URL", "ok": bool(base_url),
         "detail": base_url or
@@ -187,7 +222,10 @@ def readiness(db: Session) -> Dict[str, object]:
     checks.append({"name": "Test phone", "ok": bool(test_phone),
                    "detail": test_phone or "Missing — set one to try a real call"})
 
-    can_sms = bool(api_key and username)
-    can_call = bool(api_key and username and voice_number and base_url)
+    # A credential pair that cannot authenticate is not "can". Reporting True
+    # here is what puts a green tick above a button that returns 401.
+    can_sms = bool(api_key and username) and not mismatched
+    can_call = (bool(api_key and username and voice_number and base_url)
+                and not mismatched and not own_handset)
     return {"provider": provider, "can_call": can_call, "can_sms": can_sms,
             "live": get(db, "at_environment") == "live", "checks": checks}

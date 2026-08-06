@@ -637,6 +637,10 @@ def test_sms_is_possible_before_a_voice_number_exists(db, monkeypatch):
     monkeypatch.setenv("TELEPHONY_PROVIDER", "africastalking")
     monkeypatch.setenv("AT_API_KEY", "k")
     monkeypatch.setenv("AT_USERNAME", "mabia")
+    # The environment has to be named. It defaults to sandbox, and a live app
+    # username against the sandbox host is a 401 -- which readiness now says
+    # rather than showing green and failing at the button.
+    monkeypatch.setenv("AT_ENVIRONMENT", "live")
     ready = store.readiness(db)
     assert ready["can_sms"] is True
     assert ready["can_call"] is False
@@ -698,3 +702,62 @@ def test_one_flash_does_not_queue_two_callbacks(client, db):
                  .filter(CallbackRequest.phone == "+233240009999",
                          CallbackRequest.status == "pending").count())
     assert pending == 1
+
+
+# ----------------------------------------------- filled is not the same as ok
+
+
+def _live(monkeypatch, **over):
+    values = {"TELEPHONY_PROVIDER": "africastalking", "AT_ENVIRONMENT": "live",
+              "AT_USERNAME": "mabia", "AT_API_KEY": "k",
+              "AT_VOICE_NUMBER": "+233300000001",
+              "PUBLIC_BASE_URL": "https://example.invalid",
+              "TEST_PHONE": "+233552093690"}
+    values.update(over)
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+
+def _check(ready, name):
+    return [c for c in ready["checks"] if c["name"] == name][0]
+
+
+def test_a_sandbox_username_against_live_is_flagged(db, monkeypatch):
+    """'sandbox' is the sandbox environment's own username. Against the live
+    host it is a certain 401, and it showed as five green ticks."""
+    from app import settings_store as store
+    _live(monkeypatch, AT_USERNAME="sandbox")
+    ready = store.readiness(db)
+    assert _check(ready, "Username")["ok"] is False
+    assert "live" in _check(ready, "Username")["detail"]
+    assert ready["can_call"] is False
+    assert ready["can_sms"] is False
+
+
+def test_a_live_username_against_sandbox_is_flagged(db, monkeypatch):
+    from app import settings_store as store
+    _live(monkeypatch, AT_ENVIRONMENT="sandbox", AT_USERNAME="mabia")
+    ready = store.readiness(db)
+    assert _check(ready, "Username")["ok"] is False
+
+
+def test_the_matching_pairs_are_not_flagged(db, monkeypatch):
+    from app import settings_store as store
+    _live(monkeypatch)
+    assert _check(store.readiness(db), "Username")["ok"] is True
+    _live(monkeypatch, AT_ENVIRONMENT="sandbox", AT_USERNAME="sandbox")
+    assert _check(store.readiness(db), "Username")["ok"] is True
+
+
+def test_your_own_handset_in_the_voice_number_field_is_caught(db, monkeypatch):
+    """The commonest way to fill it in wrongly, because it is the number they
+    are holding. It is the `from`, not the `to`."""
+    from app import settings_store as store
+    _live(monkeypatch, AT_VOICE_NUMBER="+233552093690",
+          TEST_PHONE="+233552093690")
+    ready = store.readiness(db)
+    assert _check(ready, "Voice number")["ok"] is False
+    assert "Test phone" in _check(ready, "Voice number")["detail"]
+    assert ready["can_call"] is False
+    # SMS never uses the voice number, so it is still available.
+    assert ready["can_sms"] is True

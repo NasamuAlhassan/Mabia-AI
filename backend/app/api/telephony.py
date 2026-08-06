@@ -7,7 +7,7 @@ call, not a slow page.
 import datetime as dt
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi import APIRouter, Depends, Form, Header, Request, Response
 from sqlalchemy.orm import Session
 
 from .. import events as ev
@@ -439,8 +439,21 @@ def _ussd_screen(db: Session, user: User, steps) -> str:
 
 @router.post("/run-callbacks")
 def run_callbacks(db: Session = Depends(get_db),
-                  user: User = Depends(current_user)):
-    """Ring back everyone who flashed us. She spends nothing."""
+                  x_cron_token: str = Header(default=""),
+                  authorization: str = Header(default="")):
+    """Ring back everyone who flashed us. She spends nothing.
+
+    A signed-in worker OR the cron's shared secret, and the second one is the
+    point. This only ever ran when a human pressed "Run call-backs" on a screen
+    -- so a woman who flashed the hotline at two in the morning sat in a pending
+    row until somebody opened the console. The one path in this product she
+    reaches for herself, in the hours she is most likely to need it, waited on
+    office hours. The 08:00 tick places scheduled antenatal contacts and has
+    never touched this queue.
+    """
+    from .contacts import _authorise
+    _authorise(x_cron_token, authorization, db)
+
     pending = (db.query(CallbackRequest)
                  .filter(CallbackRequest.status == "pending").limit(10).all())
     placed = []

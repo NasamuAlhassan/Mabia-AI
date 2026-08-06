@@ -1,0 +1,61 @@
+# The hotline.
+#
+# A woman with no airtime gives the number a missed call. Mabia rejects the
+# call -- so she is never charged -- queues a callback, and rings her back.
+#
+# Nothing drained that queue. run-callbacks was behind a signed-in session and
+# was only ever triggered by a worker pressing a button on the Simulator
+# screen, and the 08:00 outreach tick places scheduled antenatal contacts and
+# has never touched it. So a flash at two in the morning sat in a pending row
+# until somebody opened the console in the morning: the one path in this
+# product she reaches for herself, dead in the hours she is most likely to
+# need it.
+#
+# Every ten minutes is the floor GitHub actually honours -- scheduled runs are
+# best-effort and get delayed under load, so treat this as "within about a
+# quarter of an hour", not a guarantee. It is not a substitute for a real
+# scheduler in a funded deployment; it is the difference between minutes and
+# next morning.
+
+name: Hotline callbacks
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# A slow run must not stack up behind the next tick and ring a woman twice.
+concurrency:
+  group: hotline-callbacks
+  cancel-in-progress: false
+
+jobs:
+  ring-back:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ring back everyone who flashed
+        env:
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
+        run: |
+          if [ -z "$CRON_TOKEN" ]; then
+            echo "CRON_TOKEN secret is not set — nothing would be authorised" >&2
+            exit 1
+          fi
+          # No wake-up step and no retry loop, unlike the morning outreach run.
+          # This fires every ten minutes; if the free dyno is asleep this call
+          # wakes it and the next tick gets through. Blocking here for a minute
+          # on every run, all day, would burn the Actions allowance for nothing.
+          code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 120 \
+            -X POST https://mabia-api.onrender.com/api/telephony/run-callbacks \
+            -H "X-Cron-Token: $CRON_TOKEN" || echo 000)
+          cat /tmp/out || true
+          echo
+          case "$code" in
+            2*) exit 0 ;;
+            000|502|503|504)
+              echo "API asleep or unreachable ($code) — next tick will catch it"
+              exit 0 ;;
+            *)
+              echo "run-callbacks failed with $code" >&2
+              exit 1 ;;
+          esac

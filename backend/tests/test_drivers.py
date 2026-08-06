@@ -642,3 +642,59 @@ def test_sms_is_possible_before_a_voice_number_exists(db, monkeypatch):
     assert ready["can_call"] is False
     missing = [c for c in ready["checks"] if not c["ok"]]
     assert any("Voice number" == c["name"] for c in missing)
+
+
+# --------------------------------------------------------------- the hotline
+#
+# She flashes and hangs up; the platform rings her back so she pays nothing.
+# The queue that makes that work was drained only by a human pressing a button.
+
+
+def test_a_flash_is_never_answered_so_she_is_never_charged(client, db):
+    from app.models import CallbackRequest
+    before = db.query(CallbackRequest).count()
+    r = client.post("/api/telephony/voice",
+                    data={"sessionId": "flash-1", "isActive": "1",
+                          "callerNumber": "+233240000001",
+                          "destinationNumber": "+233200000000",
+                          "direction": "inbound"})
+    assert "<Reject/>" in r.text
+    assert db.query(CallbackRequest).count() > before
+
+
+def test_the_cron_can_ring_her_back_without_a_worker(client, db, monkeypatch):
+    """This is the fix. It used to require a signed-in session, so a flash at
+    two in the morning waited until somebody opened the console."""
+    monkeypatch.setenv("CRON_TOKEN", "a-shared-secret")
+    r = client.post("/api/telephony/run-callbacks",
+                    headers={"X-Cron-Token": "a-shared-secret"})
+    assert r.status_code == 200
+    assert "count" in r.json()
+
+
+def test_the_callback_endpoint_still_refuses_strangers(client, monkeypatch):
+    """It places outbound calls. Open, it is toll fraud."""
+    monkeypatch.setenv("CRON_TOKEN", "a-shared-secret")
+    assert client.post("/api/telephony/run-callbacks").status_code == 401
+    assert client.post("/api/telephony/run-callbacks",
+                       headers={"X-Cron-Token": "wrong"}).status_code == 401
+
+
+def test_a_signed_in_worker_can_still_press_the_button(client, auth):
+    assert client.post("/api/telephony/run-callbacks",
+                       headers=auth).status_code == 200
+
+
+def test_one_flash_does_not_queue_two_callbacks(client, db):
+    """A woman redialling because nothing happened must not be rung twice."""
+    from app.models import CallbackRequest
+    for attempt in range(3):
+        client.post("/api/telephony/voice",
+                    data={"sessionId": "flash-dup-{}".format(attempt),
+                          "isActive": "1", "callerNumber": "+233240009999",
+                          "destinationNumber": "+233200000000",
+                          "direction": "inbound"})
+    pending = (db.query(CallbackRequest)
+                 .filter(CallbackRequest.phone == "+233240009999",
+                         CallbackRequest.status == "pending").count())
+    assert pending == 1

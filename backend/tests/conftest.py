@@ -76,3 +76,21 @@ def wav(seconds_of_silence: int = 2000) -> bytes:
             + (16000).to_bytes(4, "little") + (2).to_bytes(2, "little")
             + (16).to_bytes(2, "little")
             + b"data" + len(body).to_bytes(4, "little") + body)
+
+
+# Settings fall back to environment variables, so a developer's .env now
+# changes what the tests see -- config.py loads that file into os.environ at
+# import. A suite whose result depends on which credentials happen to be on the
+# machine is not a suite. Every settings key is cleared before each test, and a
+# test that wants one sets it explicitly.
+SETTING_ENV = (
+    "TELEPHONY_PROVIDER", "AT_ENVIRONMENT", "AT_USERNAME", "AT_API_KEY",
+    "AT_VOICE_NUMBER", "AT_SENDER_ID", "AT_USSD_CODE", "PUBLIC_BASE_URL",
+    "TEST_PHONE", "DEFAULT_LANGUAGE", "HOTLINE_NUMBER",
+)
+
+
+@pytest.fixture(autouse=True)
+def _settings_env_is_clean(monkeypatch):
+    for name in SETTING_ENV:
+        monkeypatch.delenv(name, raising=False)

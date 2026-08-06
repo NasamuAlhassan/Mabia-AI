@@ -45,9 +45,19 @@ SCHEMA = {
         "", False, "Voice number",
         "The Africa's Talking number that places calls, e.g. +233XXXXXXXXX. "
         "Outbound calls will not work without it."),
+    # Empty by default, and that is the safe direction. An alphanumeric sender
+    # ID must be registered with Africa's Talking before it can be used in
+    # Ghana, and sending with an unregistered one is refused -- so defaulting to
+    # "MABIA" meant a new deployment's first SMS failed, and there was no way to
+    # clear it: an empty saved value falls through to the default, so the field
+    # could not be emptied from the screen it is edited on. Left blank, no
+    # `from` is sent and the message goes out on Africa's Talking's shared
+    # shortcode, which always works. Fill it in once the ID is approved.
     "at_sender_id": (
-        "MABIA", False, "SMS sender ID",
-        "Alphanumeric sender IDs need registration in Ghana; leave as is if unsure."),
+        "", False, "SMS sender ID",
+        "Leave blank until Africa's Talking has approved one. An alphanumeric "
+        "ID must be registered in Ghana, and sending with an unregistered one "
+        "is refused. Blank sends on the shared shortcode."),
     "at_ussd_code": (
         "", False, "USSD code",
         "Your shared code, e.g. *384*1234#. Only needed for the USSD worklist."),

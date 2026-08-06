@@ -607,3 +607,38 @@ def test_an_environment_key_makes_the_provider_ready(db, monkeypatch):
     assert ready["can_call"] is True
     assert ready["can_sms"] is True
     assert all(c["ok"] for c in ready["checks"] if c["name"] != "Test phone")
+
+
+def test_an_unregistered_sender_id_is_not_forced_on_a_new_deployment(db):
+    """Ghana refuses an alphanumeric sender ID that has not been registered.
+
+    It defaulted to "MABIA", so the first SMS a new deployment sent was
+    rejected -- and the field could not be cleared, because an empty saved
+    value falls through to the default. Blank means no `from`, which goes out
+    on the shared shortcode and always works.
+    """
+    from app import settings_store as store
+    assert store.get(db, "at_sender_id") == ""
+
+
+def test_a_blank_sender_id_sends_no_from_at_all(db):
+    from app.telephony.africastalking import AfricasTalkingProvider
+    provider = AfricasTalkingProvider(username="u", api_key="k", sender_id="")
+    assert not provider.sender_id
+
+
+def test_sms_is_possible_before_a_voice_number_exists(db, monkeypatch):
+    """The order these arrive in is not the order they are needed in.
+
+    A voice number is requested and waited for; an API key is instant. Setup
+    has to report that SMS works and calls do not, rather than one red light.
+    """
+    from app import settings_store as store
+    monkeypatch.setenv("TELEPHONY_PROVIDER", "africastalking")
+    monkeypatch.setenv("AT_API_KEY", "k")
+    monkeypatch.setenv("AT_USERNAME", "mabia")
+    ready = store.readiness(db)
+    assert ready["can_sms"] is True
+    assert ready["can_call"] is False
+    missing = [c for c in ready["checks"] if not c["ok"]]
+    assert any("Voice number" == c["name"] for c in missing)

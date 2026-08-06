@@ -94,3 +94,94 @@ test('events written in the same millisecond keep their order', async () => {
     Date.now = realNow
   }
 })
+
+// ---------------------------------------------------------------- at rest
+
+test('the clinical content is encrypted on the disk, not just in transit', async () => {
+  const stores = install()
+  const { outbox } = await import('../src/db.js')
+
+  await outbox.add(event('enrolment', { name: 'Amina Fuseini', phone: '0240000001' }))
+
+  // Read the raw row the way someone with the handset would: straight out of
+  // the store, without going through the outbox.
+  const raw = [...stores.outbox.rows.values()].at(-1)
+  const asText = JSON.stringify(raw)
+  assert.ok(!asText.includes('Amina'), 'her name is readable in the raw record')
+  assert.ok(!asText.includes('0240000001'), 'her number is readable in the raw record')
+  assert.equal(raw.payload.__enc, 1, 'the payload was written unsealed')
+
+  // The envelope stays readable on purpose: the outbox has to sort and
+  // de-duplicate without decrypting anything.
+  assert.ok(raw.event_id)
+  assert.equal(raw.event_type, 'enrolment')
+})
+
+test('what was sealed comes back exactly as it went in', async () => {
+  install()
+  const { outbox } = await import('../src/db.js')
+
+  const payload = { name: 'Amina Fuseini', weeks: 32, signs: ['bleeding'], seen: false }
+  const added = await outbox.add(event('enrolment', payload))
+
+  const back = (await outbox.all()).find(e => e.event_id === added.event_id)
+  assert.deepEqual(back.payload, payload)
+})
+
+test('a record refused by the server is not rewritten in clear', async () => {
+  const stores = install()
+  const { outbox, flush } = await import('../src/db.js')
+
+  const bad = await outbox.add(event('enrolment', { name: 'Zeinab Mahama' }))
+  await flush(async () => ({
+    accepted: 0,
+    rejected: [{ event_id: bad.event_id, reason: 'enrolment missing name or phone' }],
+  }))
+
+  const raw = stores.outbox.rows.get(bad.event_id)
+  assert.equal(raw.payload.__enc, 1, 'marking it refused wrote the payload back in clear')
+  assert.match(raw.rejected_reason, /missing name or phone/)
+
+  // And it is still readable to the worker who has to deal with it.
+  const kept = (await outbox.rejected())[0]
+  assert.equal(kept.payload.name, 'Zeinab Mahama')
+})
+
+test('a record written before encryption existed is still readable', async () => {
+  const stores = install()
+  const { outbox } = await import('../src/db.js')
+
+  // What an older build left behind: a plain payload, no marker.
+  stores.outbox.rows.set('legacy-1', {
+    event_id: 'legacy-1', event_type: 'visit_recorded',
+    payload: { note: 'Seen at home' }, occurred_at: new Date().toISOString(),
+  })
+
+  const back = (await outbox.all()).find(e => e.event_id === 'legacy-1')
+  assert.equal(back.payload.note, 'Seen at home')
+})
+
+// ------------------------------------------------------------- cache misses
+
+test('a cache miss reads as a miss, not as an empty hit', async () => {
+  install()
+  const { cache } = await import('../src/db.js')
+
+  const missing = await cache.get('/api/worklist')
+  assert.equal(missing, undefined,
+    'a miss returned an object, so callers asking "is it cached?" were told yes')
+
+  await cache.set('/api/worklist', { data: [{ id: 1 }], at: 123 })
+  const hit = await cache.get('/api/worklist')
+  assert.deepEqual(hit, { data: [{ id: 1 }], at: 123 })
+})
+
+test('the cached copy of a caseload is encrypted too', async () => {
+  const stores = install()
+  const { cache } = await import('../src/db.js')
+
+  await cache.set('/api/patients', { data: [{ name: 'Hawa Sulemana' }], at: 1 })
+  const raw = stores.cache.rows.get('/api/patients')
+  assert.ok(!JSON.stringify(raw).includes('Hawa'), 'the cached caseload is readable on disk')
+  assert.equal(raw.__enc, 1)
+})

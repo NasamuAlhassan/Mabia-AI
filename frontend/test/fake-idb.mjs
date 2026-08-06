@@ -17,7 +17,13 @@ class Store {
 }
 
 export function install() {
-  const stores = { outbox: new Store('event_id'), cache: new Store(null) }
+  // The fake never fires onupgradeneeded, so every store the app expects has
+  // to exist from the start. `vault` holds the record key.
+  const stores = {
+    outbox: new Store('event_id'),
+    cache: new Store(null),
+    vault: new Store(null),
+  }
 
   globalThis.indexedDB = {
     open() {

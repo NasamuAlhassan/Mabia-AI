@@ -95,9 +95,34 @@ async def press(body: PressIn, db: Session = Depends(get_db),
     spoken, english = _render(db, refreshed_language(db, body.session_id), xml)
     return {"xml": xml, "spoken": spoken, "english": english,
             "options": _options(xml),
+            "connecting": _connecting(db, xml),
             "state": refreshed.state if refreshed else None,
             "ended": bool(refreshed.ended_at) if refreshed else True,
             "outcome": refreshed.outcome if refreshed else None}
+
+
+def _connecting(db, xml: str):
+    """Who the call is being handed to, for whoever is watching.
+
+    A <Dial> is the one thing that happens in a call and says nothing: it plays
+    no audio, so the panel showed "please hold" and then a blank screen. On the
+    transport path that is the whole event -- the numbers being rung in order
+    are what there is to see.
+    """
+    import re
+    from ..models import Driver
+
+    found = re.search(r'<Dial phoneNumbers="(.*?)"', xml)
+    if not found:
+        return []
+    out = []
+    for position, number in enumerate(found.group(1).split(","), 1):
+        driver = db.query(Driver).filter(Driver.phone == number.strip()).first()
+        out.append({"position": position, "phone": number.strip(),
+                    "name": driver.name if driver else None,
+                    "vehicle": driver.vehicle_type if driver else None,
+                    "community": driver.community if driver else None})
+    return out
 
 
 def refreshed_language(db, session_id):

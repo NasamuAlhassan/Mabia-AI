@@ -47,6 +47,7 @@ export async function api(path, { method = 'GET', body, auth = true } = {}) {
 export const get = (p) => api(p)
 export const post = (p, body) => api(p, { method: 'POST', body })
 export const put = (p, body) => api(p, { method: 'PUT', body })
+export const patch = (p, body) => api(p, { method: 'PATCH', body })
 
 export async function upload(path, blob, filename) {
   const form = new FormData()

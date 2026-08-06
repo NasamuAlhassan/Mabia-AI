@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import services
 from ..db import get_db
-from ..models import Dispatch, Emergency, Patient, User
+from ..models import Dispatch, Driver, Emergency, Patient, User
 from ..security import current_user, patient_in_reach
 
 router = APIRouter(prefix="/api/emergencies", tags=["emergencies"])
@@ -224,12 +224,46 @@ def _view(db: Session, emergency: Emergency):
                     "phone": patient.phone, "community": patient.community,
                     "language": patient.language} if patient else None,
         "payer": _payer(db, emergency.patient_id),
-        "dispatches": [{
-            "id": d.id, "status": d.status, "position": d.position,
-            "offered_at": d.offered_at, "responded_at": d.responded_at,
-            "location_note": d.location_note, "location_at": d.location_at,
-            "driver": {"id": d.driver.id, "name": d.driver.name,
-                       "phone": d.driver.phone, "community": d.driver.community,
-                       "vehicle": d.driver.vehicle_type} if d.driver else None}
-            for d in sorted(emergency.dispatches, key=lambda x: x.position or 0)],
+        "dispatches": dispatch_rows(emergency),
+        "queue_remaining": remaining_queue(db, emergency, patient),
     }
+
+
+def dispatch_rows(emergency: Emergency):
+    """Who has been rung, in the order they were rung."""
+    return [{
+        "id": d.id, "status": d.status, "position": d.position,
+        "offered_at": d.offered_at, "responded_at": d.responded_at,
+        "location_note": d.location_note, "location_at": d.location_at,
+        "driver": {"id": d.driver.id, "name": d.driver.name,
+                   "phone": d.driver.phone, "community": d.driver.community,
+                   "vehicle": d.driver.vehicle_type} if d.driver else None}
+        for d in sorted(emergency.dispatches, key=lambda x: x.position or 0)]
+
+
+def remaining_queue(db: Session, emergency: Emergency, patient):
+    """Who has not been tried yet, in the order they would be.
+
+    Without this the screen showed two declines and stopped, which reads as
+    "that was everyone" -- and that is the reading a worker acts on. Whether
+    there are two more men to ring or nobody left decides whether she waits or
+    starts arranging a vehicle herself, and it was the one thing the cascade
+    knew and never said out loud.
+    """
+    if patient is None or emergency.status in ("closed", "cancelled", "arrived"):
+        return []
+    # By handset, matching the cascade's own dedupe: two rows can carry one
+    # number, and listing a man as "still to try" when he has already declined
+    # is worse than not listing him at all.
+    tried = {driver.phone for driver in
+             (db.get(Driver, d.driver_id) for d in emergency.dispatches)
+             if driver is not None}
+    out = []
+    for driver in services.rank_drivers(db, patient):
+        if driver.phone in tried:
+            continue
+        tried.add(driver.phone)
+        out.append({"id": driver.id, "name": driver.name,
+                    "phone": driver.phone, "community": driver.community,
+                    "vehicle": driver.vehicle_type})
+    return out

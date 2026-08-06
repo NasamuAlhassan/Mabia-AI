@@ -22,6 +22,7 @@ export default function Simulator() {
 
   const [pressing, setPressing] = useState(false)
   const [english, setEnglish] = useState('')
+  const [connecting, setConnecting] = useState([])
   const [error, setError] = useState('')
 
   async function press(sessionId, digit) {
@@ -35,6 +36,7 @@ export default function Simulator() {
       setActive(sessionId)
       setScreen(out.spoken || '(silence)')
       setEnglish(out.english || '')
+      setConnecting(out.connecting || [])
       setEnded(out.ended)
       load()
     } catch (e) {
@@ -91,6 +93,23 @@ export default function Simulator() {
                 </span>
               )}
             </div>
+            {/* A Dial plays no audio, so this leg of the call used to show
+                "please hold" and then nothing. On the transport path the
+                numbers being rung, in order, are the whole event. */}
+            {active === h.session_id && connecting.length > 0 && (
+              <div className="notice ok" style={{ marginTop: '.5rem' }}>
+                <strong>Ringing, in this order:</strong>
+                <ol style={{ margin: '.35rem 0 0 1.1rem', padding: 0 }}>
+                  {connecting.map(c => (
+                    <li key={c.phone}>
+                      {c.name || 'Unknown number'} — {phone(c.phone)}
+                      {c.vehicle && ` · ${c.vehicle}`}
+                      {c.community && ` · ${c.community}`}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {error && <div className="notice bad" role="alert">{error}</div>}
             {active === h.session_id && ended ? (
               <div className="notice ok">Call ended.</div>
@@ -108,6 +127,8 @@ export default function Simulator() {
                 </div>
                 <p className="tiny muted" style={{ marginTop: '.5rem' }}>
                   1 = yes · 2 = no · 9 = speak to a nurse, from any point.
+                  On the hotline menu, 2 asks for transport and connects her to
+                  her own driver.
                   Try 3, 7 or 0 — a wrong key re-asks rather than being recorded
                   as a denial.
                 </p>

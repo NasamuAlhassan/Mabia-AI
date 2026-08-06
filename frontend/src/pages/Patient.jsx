@@ -5,7 +5,8 @@ import { BackLink } from '../App'
 import { outbox } from '../db'
 import CriticalAction from '../lib/CriticalAction'
 import CareCircle from '../components/CareCircle'
-import { useData, Failed, Skeleton } from '../lib/data'
+import Spine from '../components/Spine'
+import { useData, ago, Failed, Skeleton } from '../lib/data'
 import { reasonLabel } from './Dashboard'
 import { display as phone } from '../phone'
 import * as I from '../components/Icons'
@@ -135,8 +136,19 @@ export default function Patient() {
             </div>
           </div>
 
+          {/* Sits above History on purpose. History is what has been written
+              down; this is what was supposed to happen and has not. */}
           <div className="card">
-            <div className="card-head"><I.Circle size={16} /> 3. History</div>
+            <div className="card-head">
+              <I.Calendar size={16} /> 3. Antenatal contacts
+            </div>
+            <div className="card-body">
+              <Spine patientId={p.id} weeks={p.weeks_pregnant} />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><I.Circle size={16} /> 4. History</div>
             <div className="card-body"><History patient={p} /></div>
           </div>
         </div>
@@ -211,7 +223,11 @@ export default function Patient() {
                     <CancelEmergency id={open.id} onDone={reload} />
                   </div>
                 ) : (
-                  <Outcome id={open.id} onDone={reload} />
+                  <>
+                    <Cascade emergency={open} onDone={reload}
+                             community={p.community} />
+                    <Outcome id={open.id} onDone={reload} />
+                  </>
                 )}
               </div>
             </div>
@@ -466,6 +482,142 @@ function CancelEmergency({ id, onDone }) {
                         holdMs={500} onDone={onDone} />
         <button className="small" onClick={() => setOpen(false)}>Keep it</button>
       </div>
+    </div>
+  )
+}
+
+
+/* The cascade, while it is running.
+ *
+ * A worker who confirmed an emergency saw "Status: dispatching" and nothing
+ * else. Whether one man had been rung or four, whether two had declined,
+ * whether anybody was left to try — none of it was on the screen, and all of it
+ * was in the database. The question she is actually asking is "is somebody
+ * coming, and if not, do I start arranging a vehicle myself", and the answer to
+ * that is the tail of this list, not the head. */
+
+const DISPATCH_WORD = {
+  offered: 'Ringing now',
+  accepted: 'On his way',
+  declined: 'Could not come',
+  no_answer: 'No answer',
+  cancelled: 'Stood down',
+}
+
+function Cascade({ emergency, onDone, community }) {
+  // Absent and empty are different facts, and only one of them is safe to
+  // announce. A copy of this record saved on the phone before the cascade
+  // existed carries neither field, and reading that as "nobody is registered"
+  // printed a false alarm in the place it does the most harm — it would send a
+  // worker off to find a car while a man was already on his way.
+  const known = Array.isArray(emergency.dispatches)
+             && Array.isArray(emergency.queue_remaining)
+  if (!known) return null
+
+  const tried = emergency.dispatches
+  const remaining = emergency.queue_remaining
+  const accepted = tried.find(d => d.status === 'accepted')
+  const exhausted = tried.length > 0 && !accepted && remaining.length === 0
+
+  if (tried.length === 0 && remaining.length === 0) {
+    return (
+      <div className="notice bad" role="alert" style={{ marginBottom: 12 }}>
+        <strong>There is no driver registered for {
+          community || 'her community'}.</strong>{' '}
+        Nobody can be called. Arrange a vehicle yourself now.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="band-head" style={{ marginTop: 0 }}>Transport</div>
+
+      <ol className="cascade">
+        {tried.map(d => (
+          <li key={d.id} className={`cascade__step ${d.status}`}>
+            <span className="cascade__who">
+              {d.driver?.name || 'Driver'}
+              <small>
+                {d.driver?.vehicle} · {d.driver?.community}
+                {d.driver?.phone && <> · <a href={`tel:${d.driver.phone}`}>
+                  {phone(d.driver.phone)}</a></>}
+              </small>
+            </span>
+            <span className="cascade__state">
+              {DISPATCH_WORD[d.status] || d.status}
+              <small>{ago(d.responded_at || d.offered_at)}</small>
+            </span>
+          </li>
+        ))}
+
+        {/* Greyed and unnumbered-looking, because these are men who have not
+            been rung. Showing them as part of the same list is the point: the
+            queue did not stop, it is still going. */}
+        {!accepted && remaining.map(d => (
+          <li key={d.id} className="cascade__step waiting">
+            <span className="cascade__who">
+              {d.name}
+              <small>{d.vehicle} · {d.community}</small>
+            </span>
+            <span className="cascade__state">Not tried yet</span>
+          </li>
+        ))}
+      </ol>
+
+      {accepted && (
+        <Whereabouts dispatch={accepted} onDone={onDone} />
+      )}
+
+      {exhausted && (
+        <div className="notice bad" role="alert">
+          <strong>Every driver has been tried and none can come.</strong>{' '}
+          Nothing further will happen on its own. Arrange a vehicle yourself.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Whereabouts({ dispatch, onDone }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function report(e) {
+    e.preventDefault()
+    if (!note.trim()) return
+    setBusy(true); setError(null)
+    try {
+      await post(`/api/drivers/dispatches/${dispatch.id}/location`,
+                 { note: note.trim() })
+      setNote('')
+      onDone()
+    } catch (err) {
+      setError(err.message)
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="notice ok" style={{ marginTop: 10 }}>
+      {dispatch.location_note
+        ? <>Last reported <strong>{dispatch.location_note}</strong>,
+            {' '}{ago(dispatch.location_at)}</>
+        : 'Nobody has asked him where he is yet.'}
+      <form className="row" onSubmit={report} style={{ marginTop: 8 }}>
+        <input className="field" style={{ marginBottom: 0 }} value={note}
+               onChange={e => setNote(e.target.value)} maxLength={200}
+               placeholder="Where did he say he was?" />
+        <button className="small" disabled={busy || !note.trim()}>
+          {busy ? 'Saving…' : 'Record it'}
+        </button>
+      </form>
+      {/* His handset cannot report a position and the screen must not imply
+          it can. This is a nurse writing down what he said on the phone. */}
+      <p className="tiny muted" style={{ margin: '6px 0 0' }}>
+        As he said it. There is no tracking on his handset.
+      </p>
+      {error && <div className="error">{error}</div>}
     </div>
   )
 }

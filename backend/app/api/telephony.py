@@ -135,6 +135,11 @@ async def voice(request: Request, db: Session = Depends(get_db)):
     # ---- outreach and hotline --------------------------------------------
     turn = ivr.advance(db, session, dtmf, base, callback)
 
+    if turn.note == "transport":
+        xml = _transport_turn(db, session, base)
+        db.commit()
+        return _xml(xml)
+
     if turn.note == "nurse":
         # Fold what she has already said into the log BEFORE routing her. She
         # may have just reported bleeding and then asked for a person; losing
@@ -196,6 +201,46 @@ def _driver_turn(db: Session, session: CallSession, dtmf, base, callback) -> Res
     db.commit()
     key = "driver_accepted" if accepted else "driver_declined"
     return _xml(ivr.tell(db, base, session.language, key, prompts.line(key)))
+
+
+def _transport_turn(db: Session, session: CallSession, base: str) -> str:
+    """She asked for a vehicle. Put her through to one.
+
+    The call is not ended here. `<Dial sequential>` hands the leg to the driver
+    and the provider closes it when they hang up, so marking the session done
+    now would make the end-of-call webhook walk a finished state machine.
+
+    If the village has nobody she is not told "goodbye" -- she goes to the nurse
+    by the same path as any other dead end in this file. A woman who rings at
+    night asking for transport and is answered with silence is the exact
+    failure this product exists to stop.
+    """
+    patient = db.get(Patient, session.patient_id) if session.patient_id else None
+    if patient is None:
+        # An unrecognised caller has no community, so there is no queue to
+        # rank. A person is the only useful answer.
+        return _nurse_turn(db, session, base)
+
+    numbers = services.direct_transport(db, patient)
+    services.transport_requested(db, patient, numbers)
+
+    if not numbers:
+        session.escalated_to_nurse = True
+        db.flush()
+        xml = _nurse_turn(db, session, base)
+        # Said first, so she knows why the line changed rather than hearing a
+        # nurse greeting after asking for a car.
+        return xml.replace(
+            "<Response>",
+            "<Response>" + ivr.speak(db, base, session.language, "driver_none",
+                                     prompts.line("driver_none")), 1)
+
+    # Deliberately not logged as a nurse routing as well. transport_requested
+    # has already written the event; counting this under NURSE_ROUTED too would
+    # inflate the one number a supervisor reads to find out how often the nurse
+    # line is actually being leaned on.
+    return ivr.dial(db, ",".join(numbers), prompts.line("driver_connecting"),
+                    base, session.language, key="driver_connecting")
 
 
 def _nurse_turn(db: Session, session: CallSession, base: str) -> str:

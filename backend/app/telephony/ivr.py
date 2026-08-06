@@ -142,10 +142,21 @@ def tell(db, base_url: str, language: str, key: str, text: str) -> str:
     return "<Response>{}</Response>".format(body)
 
 
-def dial(db, numbers: str, hold_text: str, base_url: str, language: str) -> str:
+def dial(db, numbers: str, hold_text: str, base_url: str, language: str,
+         key: str = "nurse_connecting") -> str:
+    """Put her through, after telling her what is about to happen.
+
+    sequential, so the numbers are rung in the order given rather than all at
+    once: this is a cascade, and a second man should not be pulled off his own
+    evening because the first one answered.
+
+    The hold key used to be hardcoded to the nurse's line. It is what selects
+    the recording, so any other use of this function played her "we are
+    connecting you to a nurse" in her own language while it rang a driver.
+    """
     return ('<Response>{}<Dial phoneNumbers="{}" record="false" '
             'sequential="true"/></Response>').format(
-        speak(db, base_url, language, "nurse_connecting", hold_text),
+        speak(db, base_url, language, key, hold_text),
         escape(numbers, {'"': "&quot;"}))
 
 
@@ -247,6 +258,23 @@ def advance(db: Session, session: CallSession, digit: Optional[str],
             ], callback_url))
 
         remember("hotline_menu", digit)
+        if digit == "2":
+            # Straight through to a driver, without waiting for anyone to
+            # validate anything.
+            #
+            # This does not break "nothing dispatches before a human confirms".
+            # That rule governs the platform ringing round a village on its own
+            # judgement and telling a man to leave his house. This is a phone
+            # call she could place herself if she had the number to hand at two
+            # in the morning, and the entire reason she cannot is that it is two
+            # in the morning. Nothing is decided here: no cascade is started, no
+            # dispatch is recorded, no family is messaged. She is connected, and
+            # a person is told it happened.
+            session.answers = answers
+            session.transcript = transcript
+            db.flush()
+            return Turn("", finished=False, note="transport")
+
         if digit == "1":
             # Straight into the danger questions. No consent step: she called us.
             session.state = DANGER

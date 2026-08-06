@@ -16,16 +16,24 @@ import Patient from './pages/Patient'
 import Patients from './pages/Patients'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import Transport from './pages/Transport'
 import Visits from './pages/Visits'
 
-// The five the mockups name, in their order. Everything else this platform can
-// do lives inside one of them: the nutrition view and the indicators under
-// Reports, the language workbench and the call simulator under Settings. A
-// worker's primary navigation is not the place to advertise a developer tool.
+// The five the mockups name, in their order, and Transport. Everything else
+// this platform can do lives inside one of them: the nutrition view and the
+// indicators under Reports, the language workbench and the call simulator under
+// Settings. A worker's primary navigation is not the place to advertise a
+// developer tool.
+//
+// Transport is here rather than buried because Delay 2 is a third of the model
+// this product is built on, and because the question it answers — is there a
+// vehicle in that village — has to be answerable on a quiet afternoon. Reached
+// from inside an emergency it is already too late to register anyone.
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', Icon: I.Home },
   { to: '/patients', label: 'Patients', Icon: I.People },
   { to: '/visits', label: 'Visits', Icon: I.Calendar },
+  { to: '/transport', label: 'Transport', Icon: I.Car },
   { to: '/reports', label: 'Reports', Icon: I.Chart },
   { to: '/settings', label: 'Settings', Icon: I.Gear },
 ]
@@ -267,6 +275,7 @@ export default function App() {
         <Route path="/visits" element={<Guard><Visits /></Guard>} />
         <Route path="/visits/enrol" element={<Guard><Enrol /></Guard>} />
         <Route path="/visits/facility" element={<Guard><Facility /></Guard>} />
+        <Route path="/transport" element={<Guard><Transport /></Guard>} />
         <Route path="/reports" element={<Guard><Reports /></Guard>} />
         <Route path="/settings" element={<Guard><Settings /></Guard>} />
         {/* The old addresses still resolve; a bookmark should not break. */}

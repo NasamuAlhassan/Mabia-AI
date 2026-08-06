@@ -54,7 +54,17 @@ SCRIPT = {
                          "has been told, and someone will call you back. Goodbye.",
     "hotline_greet": "Hello. This is Mabia. We are calling you back so this call "
                      "costs you nothing.",
-    "hotline_menu": "Press 1 if this is an emergency. Press 9 to speak to a nurse.",
+    # Transport is on the menu because Delay 2 is the one she can do something
+    # about while she waits. Second, not first: if she is bleeding, the question
+    # that matters is the clinical one, and 9 stays last because it is the
+    # escape hatch from anywhere rather than a menu item.
+    "hotline_menu": "Press 1 if this is an emergency. Press 2 if you need "
+                    "transport now. Press 9 to speak to a nurse.",
+    "driver_connecting": "Please hold. We are calling a driver for you now.",
+    # She is told the truth and handed to a person. Silence, or "goodbye", is
+    # the one ending this call must never have.
+    "driver_none": "We have no driver for your village tonight. We are "
+                   "connecting you to a nurse now.",
     "driver_request": "Urgent. A woman needs transport now. Press 1 to accept, "
                       "2 if you cannot.",
     "driver_accepted": "Thank you. Please go now. The health worker will call you.",

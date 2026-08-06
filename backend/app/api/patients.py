@@ -13,6 +13,7 @@ from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
 from .. import phones
 from ..security import patient_in_reach
+from .emergencies import dispatch_rows, remaining_queue
 from .worklist import weeks_pregnant
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
@@ -154,12 +155,20 @@ def detail(patient_id: str, db: Session = Depends(get_db),
         # the natural place a worker looks -- and the field was only on the
         # list endpoint, so "the text message did not send, reach her another
         # way" could never render where it matters most.
+        # Dispatches and the rest of the queue, because this is the page a
+        # worker is on while a cascade is running. She saw "Status:
+        # dispatching" and nothing else -- not who had been rung, not who had
+        # declined, and above all not whether anyone was left to try. That last
+        # one decides whether she waits or starts arranging a vehicle herself,
+        # and it was in the database the whole time.
         "emergencies": [{"id": em.id, "status": em.status,
                          "reasons": em.reason_codes, "created_at": em.created_at,
                          "outcome": em.outcome,
                          "alert_failed": bool(em.alert_failed),
                          "alert_error": em.alert_error,
-                         "validated_at": em.validated_at}
+                         "validated_at": em.validated_at,
+                         "dispatches": dispatch_rows(em),
+                         "queue_remaining": remaining_queue(db, em, patient)}
                         for em in emergencies],
     }
 

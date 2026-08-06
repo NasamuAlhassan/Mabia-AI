@@ -34,15 +34,16 @@ AUDIO_DIR = Path(__file__).resolve().parents[1] / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/audio", StaticFiles(directory=str(AUDIO_DIR)), name="audio")
 
-from .api import (auth, circle, contacts, emergencies, facility,  # noqa: E402
-                  language, metrics, nutrition, patients, setup, simulator,
-                  sync, telephony, worklist)
+from .api import (auth, circle, contacts, drivers, emergencies,  # noqa: E402
+                  facility, language, metrics, nutrition, patients, setup,
+                  simulator, sync, telephony, worklist)
 
 app.include_router(auth.router)
 app.include_router(setup.router)
 app.include_router(patients.router)
 app.include_router(contacts.router)
 app.include_router(circle.router)
+app.include_router(drivers.router)
 app.include_router(worklist.router)
 app.include_router(emergencies.router)
 app.include_router(telephony.router)

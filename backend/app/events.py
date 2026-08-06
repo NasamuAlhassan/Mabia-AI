@@ -40,6 +40,7 @@ EMERGENCY_RAISED = "emergency_raised"
 EMERGENCY_VALIDATED = "emergency_validated"
 REFERRAL_OUTCOME = "referral_outcome"
 NURSE_ROUTED = "nurse_routed"
+TRANSPORT_REQUESTED = "transport_requested"
 RED_CLOSED = "red_closed"
 DELIVERED = "delivered"
 

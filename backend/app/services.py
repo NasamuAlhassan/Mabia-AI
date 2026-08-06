@@ -278,6 +278,79 @@ def rank_drivers(db: Session, patient: Patient) -> List[Driver]:
         d.name))
 
 
+DIRECT_DIAL_DEPTH = 3
+
+
+def direct_transport(db: Session, patient: Patient) -> List[str]:
+    """The numbers to put her straight through to, in order.
+
+    This is the other half of Delay 2, and the half nothing in the product used
+    to do. The cascade rings drivers on the platform's initiative, after a
+    health worker has confirmed a case -- which is right, because that is the
+    platform telling a man to leave his house at two in the morning on its own
+    judgement.
+
+    A woman asking to be connected is not that. She is making a call she could
+    make herself, and the only reason she cannot is that it is two in the
+    morning and his number is written on a wall at home. So this decides
+    nothing: no dispatch is recorded, no cascade starts, nobody's family is
+    messaged. It hands her a line.
+
+    Ranked by the same function the cascade uses -- the man she named first,
+    then her own community -- so the voice path and the screen never disagree
+    about who her driver is.
+
+    Three deep. The provider rings them in order within the one call, and a
+    fourth means she has been listening to a ringing tone for well over a
+    minute with something wrong; at that point a nurse is the better answer
+    than a fourth motorbike.
+    """
+    seen, numbers = set(), []
+    for driver in rank_drivers(db, patient):
+        # By handset, not by row: two rows can carry one number -- a household
+        # naming a man already on the roster under a different spelling -- and
+        # a sequential dial down a list with a repeat in it burns one of the
+        # three attempts ringing a phone that is already ringing.
+        if not driver.phone or driver.phone in seen:
+            continue
+        seen.add(driver.phone)
+        numbers.append(driver.phone)
+        if len(numbers) >= DIRECT_DIAL_DEPTH:
+            break
+    return numbers
+
+
+def transport_requested(db: Session, patient: Patient,
+                        numbers: List[str]) -> None:
+    """Record it, and tell a person.
+
+    A woman ringing at night to ask for a vehicle is a clinical signal whether
+    or not the ride works out, and she may well not ring anyone again once she
+    is in it. So her health worker hears about it now, rather than from the
+    facility tomorrow.
+    """
+    first = (db.query(Driver).filter(Driver.phone == numbers[0]).first()
+             if numbers else None)
+    ev.append(db, patient_id=patient.id, actor_id="system",
+              event_type=ev.TRANSPORT_REQUESTED,
+              payload={"numbers": numbers,
+                       "driver": first.name if first else None,
+                       "community": patient.community})
+    if numbers:
+        _alert_cho(db, patient,
+                   "{} asked for transport just now. Calling {} in {}. "
+                   "Check on her.".format(
+                       patient.name, first.name if first else numbers[0],
+                       patient.community))
+    else:
+        # The village has nobody. This is the fact the coverage map exists to
+        # surface in advance, arriving the expensive way instead.
+        _alert_cho(db, patient,
+                   "{} asked for transport and there is no driver for {}. "
+                   "She is being put through to a nurse. Arrange a vehicle."
+                   .format(patient.name, patient.community))
+
+
 def _nobody_is_coming(db: Session, emergency: Emergency) -> bool:
     """Whether this case still needs a vehicle found for it."""
     if emergency.status in ("transporting", "arrived", "closed", "cancelled"):

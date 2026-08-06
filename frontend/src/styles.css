@@ -662,3 +662,222 @@ h3 { font-size: 14.5px; margin: 0 0 4px; }
 .sms { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 .name { font-weight: 600; }
 button.help { padding: 4px 9px; font-size: 12.5px; }
+
+/* ------------------------------------------------------------ transport
+ *
+ * The coverage map. Not a geographic one: no driver in this system has
+ * coordinates, because riders in villages carry feature phones that report
+ * nothing. What Delay 2 is actually about is time, so time is the axis --
+ * each community sits where its furthest household sits, and what is
+ * registered there to carry a woman out sits beside it.
+ */
+
+.tmap { padding: 4px 0 0; }
+
+.tmap__row {
+  display: grid;
+  grid-template-columns: 150px 1fr 150px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.tmap__row:last-of-type { border-bottom: 0; }
+
+.tmap__label { font-weight: 600; font-size: 14px; }
+.tmap__label small {
+  display: block; font-weight: 400; color: var(--muted); font-size: 12px;
+  margin-top: 2px;
+}
+
+.tmap__track {
+  position: relative; height: 22px;
+  border-bottom: 2px solid var(--line);
+}
+/* A bad road is half of why Delay 2 exists, so the line itself is broken.
+   Deliberately not drawn in the amber: at two pixels it reads as red, and red
+   in this product means an emergency is live right now. The word in the label
+   carries the colour instead. */
+.tmap__track.rough {
+  border-bottom-style: dashed;
+  border-bottom-color: var(--ink-2);
+}
+.tmap__label .rough { color: var(--medium); font-weight: 600; }
+
+.tmap__marker { position: absolute; bottom: -5px; }
+.tmap__dot {
+  display: block; width: 10px; height: 10px; margin-left: -5px;
+  border-radius: 50%; background: var(--green); border: 2px solid var(--card);
+}
+.tmap__min {
+  position: absolute; bottom: 13px; left: 0; transform: translateX(-50%);
+  font-size: 11.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap;
+}
+
+.tmap__unknown {
+  position: absolute; bottom: 3px; left: 0;
+  font-size: 12px; color: var(--muted); font-style: italic;
+}
+
+/* Red only here, and only for a village with women in it and nothing that can
+   carry one of them out. */
+.tmap__row.uncovered .tmap__label { color: var(--emergency-700); }
+.tmap__row.uncovered .tmap__dot { background: var(--emergency); }
+.tmap__row.uncovered .tmap__min { color: var(--emergency-700); }
+
+.tmap__count { text-align: right; font-size: 12.5px; }
+.tmap__vehicles { color: var(--ink-2); }
+.tmap__vehicles small { display: block; color: var(--muted); font-size: 11.5px; }
+
+.tmap__axis {
+  display: grid;
+  grid-template-columns: 150px 1fr 150px;
+  gap: 12px;
+  padding: 6px 16px 14px;
+}
+.tmap__ticks { position: relative; height: 14px; }
+.tmap__ticks span {
+  position: absolute; top: 0;
+  font-size: 11px; color: var(--muted); white-space: nowrap;
+}
+
+.table.roster { table-layout: fixed; }
+
+/* A driver taken off duty stays legible: he is a record, not a deletion. */
+.table tr.retired td { color: var(--muted); }
+.table tr.retired .who { font-weight: 500; }
+
+.callnum {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--green); text-decoration: none; font-weight: 600;
+  white-space: nowrap;
+}
+.callnum:hover { text-decoration: underline; }
+
+@media (max-width: 700px) {
+  /* The label and the vehicles stack above and below the line rather than
+     squeezing the one thing the row exists to show. */
+  .tmap__row, .tmap__axis { grid-template-columns: 1fr; gap: 6px; }
+  .tmap__count { text-align: left; }
+  .tmap__axis { padding-top: 0; }
+}
+
+/* The dispatch cascade, while it is running.
+ *
+ * Position is the information: down the list is down the queue. Ink weight
+ * carries state before colour does, so it reads in sunlight and on a screen
+ * that has lost its contrast — a man not yet tried is lighter than a man
+ * ringing, and a man on his way is the heaviest thing in the block. */
+
+.cascade { list-style: none; margin: 0 0 4px; padding: 0; }
+
+.cascade__step {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 9px 0 9px 14px;
+  border-left: 3px solid var(--line);
+  border-bottom: 1px solid var(--line-soft);
+}
+.cascade__step:last-child { border-bottom: 0; }
+
+.cascade__who { flex: 1; font-weight: 600; font-size: 14px; }
+.cascade__who small {
+  display: block; font-weight: 400; color: var(--muted); font-size: 12px;
+  margin-top: 2px;
+}
+.cascade__who a { color: var(--green); font-weight: 600; }
+
+.cascade__state {
+  text-align: right; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  white-space: nowrap;
+}
+.cascade__state small {
+  display: block; font-weight: 400; color: var(--muted); font-size: 11.5px;
+  margin-top: 2px;
+}
+
+/* Ringing right now: the only thing still in motion. */
+.cascade__step.offered { border-left-color: var(--medium); }
+.cascade__step.offered .cascade__state { color: var(--medium); }
+
+/* Somebody is coming. The one piece of good news this card ever carries. */
+.cascade__step.accepted { border-left-color: var(--low); background: var(--low-bg); }
+.cascade__step.accepted .cascade__state { color: var(--low); }
+
+/* Tried and over. Legible, because who declined is a fact worth keeping, but
+   quiet, because nothing further happens on those rows. */
+.cascade__step.declined, .cascade__step.no_answer, .cascade__step.cancelled {
+  color: var(--muted);
+}
+.cascade__step.declined .cascade__who,
+.cascade__step.no_answer .cascade__who { font-weight: 500; }
+
+/* Not yet rung. Lighter than everything above it, and still on the list —
+   the queue has not stopped, and that is the whole message. */
+.cascade__step.waiting { border-left-style: dashed; color: var(--muted); }
+.cascade__step.waiting .cascade__who { font-weight: 500; }
+
+/* ------------------------------------------------------- the contact spine
+ *
+ * A ruler of the WHO antenatal schedule, not a progress bar. The marks sit on
+ * the real week axis, so the way the schedule tightens toward term is visible
+ * rather than averaged away into eight identical dots.
+ */
+
+.spine { padding: 2px 0 0; }
+
+.spine__head {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 14px; margin-bottom: 20px;
+}
+.spine__behind {
+  font-size: 12px; font-weight: 700; color: var(--medium);
+  background: var(--medium-bg); border: 1px solid #FEC84B;
+  border-radius: 999px; padding: 1px 9px;
+}
+
+.spine__rule {
+  position: relative;
+  height: 2px; margin: 0 12px 26px;
+  background: var(--line);
+}
+
+.spine__mark {
+  position: absolute; top: 50%;
+  width: 13px; height: 13px; margin: -7px 0 0 -6.5px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2px solid var(--line);
+}
+.spine__week {
+  position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+  font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+
+/* Made. Solid, because it is the only state that is finished. */
+.spine__mark.done { background: var(--green); border-color: var(--green); }
+.spine__mark.done + .spine__week, .spine__mark.done .spine__week { color: var(--green); }
+
+/* Behind her and not made. A ring rather than a fill: something is missing
+   here, and the hole is the point. */
+.spine__mark.overdue { border-color: var(--medium); border-width: 3px; }
+.spine__mark.overdue .spine__week { color: var(--medium); font-weight: 700; }
+
+/* Three attempts used. It stops being a phone problem and becomes a visit. */
+.spine__mark.missed { border-color: var(--high); background: var(--high-bg); }
+.spine__mark.missed .spine__week { color: var(--high); font-weight: 700; }
+
+.spine__mark.no_consent { border-style: dashed; }
+
+/* Where she is now. Under the marks, so it never hides one. */
+.spine__now {
+  position: absolute; top: -11px; bottom: -11px; width: 2px;
+  background: var(--ink-2); z-index: 0;
+}
+.spine__now span {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  margin-bottom: 3px;
+  font-size: 10.5px; font-weight: 700; color: var(--ink-2); white-space: nowrap;
+}
+.spine__mark { z-index: 1; }
+
+.spine__legend { margin: 0; }

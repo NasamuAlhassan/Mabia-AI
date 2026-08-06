@@ -38,9 +38,25 @@ services:
         sync: false
       # Telephony. Absent, calls are simulator-only -- enough to demonstrate
       # the whole flow, not enough to reach a real handset.
+      #
+      # These two were declared here and read by nothing. Every setting came
+      # from the Setup screen, which writes to SQLite, which on this plan is
+      # wiped on every deploy -- so a key typed in worked until the next push
+      # and then stopped, with nothing on screen changing when it did.
+      # settings_store now falls back to the environment, so anything set here
+      # outlives a deploy and Setup says which source is in force.
+      - key: TELEPHONY_PROVIDER
+        sync: false
+      - key: AT_ENVIRONMENT
+        sync: false
       - key: AT_USERNAME
         sync: false
       - key: AT_API_KEY
+        sync: false
+      - key: AT_VOICE_NUMBER
+        sync: false
+      # The handset the two test buttons ring.
+      - key: TEST_PHONE
         sync: false
       # Shared secret so the cron below can trigger the outreach run without a
       # user session. Nothing else accepts it.

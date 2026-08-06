@@ -155,6 +155,24 @@ export default function Setup() {
                          onChange={e => setValues({ ...values, [key]: e.target.value })} />
                 )}
                 <div className="help">{field.help}</div>
+                {/* This service stores settings in SQLite on a disk that the
+                    free plan wipes on every deploy. A key typed here works
+                    until the next push and then stops, and nothing on screen
+                    changes when it does — so the screen says which it is. */}
+                {field.source === 'saved' && (
+                  <div className="help" style={{ color: 'var(--medium)' }}>
+                    Typed here. It will be lost on the next deploy — set{' '}
+                    <code>{key.toUpperCase()}</code> in the host's environment
+                    to keep it.
+                  </div>
+                )}
+                {field.source === 'environment' && (
+                  <div className="help" style={{ color: 'var(--low)' }}>
+                    From <code>{key.toUpperCase()}</code> in the environment.
+                    This survives a deploy. Typing here overrides it until the
+                    next one.
+                  </div>
+                )}
               </div>
             )
           })}

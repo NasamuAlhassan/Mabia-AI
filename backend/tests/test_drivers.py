@@ -554,3 +554,56 @@ def test_an_exhausted_queue_is_distinguishable_from_an_untouched_one(
 
     emergency.status = "closed"
     db.commit()
+
+
+# ------------------------------------------------------ credentials survive
+#
+# SQLite on a free-plan disk that is wiped on every deploy. An API key typed
+# into Setup worked until the next push and then stopped, with nothing on
+# screen changing when it did.
+
+
+def test_a_setting_falls_back_to_the_environment(db, monkeypatch):
+    from app import settings_store as store
+    monkeypatch.setenv("AT_VOICE_NUMBER", "+233200000099")
+    assert store.get(db, "at_voice_number") == "+233200000099"
+    assert store.source(db, "at_voice_number") == "environment"
+
+
+def test_what_was_typed_beats_the_environment(db, monkeypatch):
+    """Someone standing at the screen changing a value must see it change."""
+    from app import settings_store as store
+    monkeypatch.setenv("AT_VOICE_NUMBER", "+233200000099")
+    store.set_value(db, "at_voice_number", "+233200000088")
+    db.commit()
+    assert store.get(db, "at_voice_number") == "+233200000088"
+    assert store.source(db, "at_voice_number") == "saved"
+    store.set_value(db, "at_voice_number", "")
+    db.commit()
+
+
+def test_the_screen_says_whether_a_value_survives_a_deploy(client, auth, db,
+                                                           monkeypatch):
+    from app import settings_store as store
+    monkeypatch.setenv("AT_API_KEY", "from-the-environment")
+    fields = {f["key"]: f for f in client.get("/api/setup",
+                                              headers=auth).json()["fields"]}
+    assert fields["at_api_key"]["configured"] is True
+    assert fields["at_api_key"]["source"] == "environment"
+    # And still masked. The point of the env fallback is not to start
+    # printing the key.
+    assert "from-the-environment" not in str(fields["at_api_key"])
+
+
+def test_an_environment_key_makes_the_provider_ready(db, monkeypatch):
+    """The readiness panel is what a person reads before making a test call."""
+    from app import settings_store as store
+    monkeypatch.setenv("TELEPHONY_PROVIDER", "africastalking")
+    monkeypatch.setenv("AT_API_KEY", "k")
+    monkeypatch.setenv("AT_USERNAME", "sandbox")
+    monkeypatch.setenv("AT_VOICE_NUMBER", "+233200000099")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.invalid")
+    ready = store.readiness(db)
+    assert ready["can_call"] is True
+    assert ready["can_sms"] is True
+    assert all(c["ok"] for c in ready["checks"] if c["name"] != "Test phone")

@@ -6,7 +6,17 @@ test against all live in the database and are edited on a Setup screen.
 
 Secrets are masked on read. The only way to see an API key again is to replace
 it, which is the correct behaviour for a field that someone will screenshot.
+
+Every setting also falls back to an environment variable of the same name in
+upper case, and that fallback is not cosmetic. This service runs on SQLite on
+Render's free plan, where the disk is wiped on every deploy -- so an API key
+typed into the Setup screen survived exactly until the next push, and the first
+symptom was a call that silently stopped being placed. Anything set in the
+environment outlives a deploy; anything typed into the screen still wins over it
+while it is there, because someone standing in front of the UI changing a value
+must see that value change.
 """
+import os
 from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -64,8 +74,30 @@ def get(db: Session, key: str) -> str:
     row = db.get(Setting, key)
     if row is not None and row.value is not None and row.value != "":
         return row.value
+    # The environment, before the default. On a free-plan deploy the database
+    # is a fresh file, so this is the only reason credentials still exist after
+    # a push -- and "the default" for an API key is the empty string, which
+    # fails as a silence rather than as an error.
+    from_env = os.getenv(key.upper(), "")
+    if from_env:
+        return from_env
     default, _, _, _ = SCHEMA.get(key, ("", False, "", ""))
     return default
+
+
+def source(db: Session, key: str) -> str:
+    """Where the value in force actually came from.
+
+    Setup shows this, because "saved" and "in force" came apart the moment
+    there were two places a value could live, and a worker looking at a filled
+    field needs to know whether it will still be filled tomorrow.
+    """
+    row = db.get(Setting, key)
+    if row is not None and row.value is not None and row.value != "":
+        return "saved"
+    if os.getenv(key.upper(), ""):
+        return "environment"
+    return "default"
 
 
 def set_value(db: Session, key: str, value: str) -> None:
@@ -101,6 +133,11 @@ def public_view(db: Session):
             "secret": is_secret,
             "value": MASK if (is_secret and raw) else ("" if is_secret else raw),
             "configured": bool(raw),
+            # Whether this survives the next deploy. On the free plan a value
+            # typed here lives on a disk that is wiped on every push, and the
+            # first symptom of losing it is a call that stops being placed
+            # without anything on screen changing.
+            "source": source(db, key),
         })
     return out
 

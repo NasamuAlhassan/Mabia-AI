@@ -64,8 +64,19 @@
   --emergency-700: #B42318;
   --emergency-tint:#FEF3F2;
 
-  --radius:        10px;
-  --radius-sm:     6px;
+  --radius:        12px;
+  --radius-sm:     8px;
+
+  /* A sunken tone. --line-soft was doing double duty as both a rule and a
+     fill, which left table headers indistinguishable from the row borders
+     beneath them. */
+  --sunk:          #F1F4F2;
+
+  /* Elevation. Two small shadows rather than none: a 1px composite is cheap
+     even on a low-end handset, and it is what separates a surface from a
+     sheet of paper with lines drawn on it. Nulled in Sun mode below. */
+  --sh-sm:         0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .06);
+  --sh-md:         0 4px 12px -2px rgba(16, 24, 40, .07), 0 2px 6px -2px rgba(16, 24, 40, .04);
   --rail-w:        232px;
   --topbar-h:      64px;
 }
@@ -81,6 +92,8 @@
   --medium: #6B3A00; --medium-bg: #FFFFFF;
   --low: #00452C; --low-bg: #FFFFFF;
   --emergency: #8A0000; --emergency-tint: #FFFFFF;
+  --sunk: #FFFFFF;
+  --sh-sm: none; --sh-md: none;
 }
 
 * { box-sizing: border-box; }
@@ -143,6 +156,7 @@ a { color: inherit; }
   font-size: 14.5px;
   opacity: .88;
 }
+.rail nav a { transition: background .14s ease, opacity .14s ease; }
 .rail nav a:hover { background: rgba(255, 255, 255, .06); opacity: 1; }
 .rail nav a.active { background: var(--rail-700); opacity: 1; font-weight: 600; }
 .rail nav a svg { flex: 0 0 18px; }
@@ -229,6 +243,7 @@ a { color: inherit; }
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: var(--sh-sm);
   overflow: hidden;
 }
 .card + .card { margin-top: 16px; }
@@ -259,12 +274,14 @@ a { color: inherit; }
 
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th {
-  text-align: left; font-size: 12.5px; font-weight: 600; color: var(--muted);
-  padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  text-align: left; font-size: 11px; font-weight: 700; color: var(--muted);
+  letter-spacing: .06em; text-transform: uppercase;
+  background: var(--sunk);
+  padding: 10px 16px; border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 .table td { padding: 13px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
 .table tr:last-child td { border-bottom: 0; }
-.table tbody tr.clickable { cursor: pointer; }
+.table tbody tr.clickable { cursor: pointer; transition: background .12s ease; }
 .table tbody tr.clickable:hover { background: var(--line-soft); }
 .table tbody tr.clickable:focus-within { background: var(--line-soft); outline: 2px solid var(--green); outline-offset: -2px; }
 /* The row is reached by the link in its first cell, which covers the cell so
@@ -307,6 +324,7 @@ button, .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   text-decoration: none;
 }
+button, .btn { transition: background .14s ease, border-color .14s ease; }
 button:hover, .btn:hover { background: var(--line-soft); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.primary { background: var(--green); border-color: var(--green); color: #fff; }
@@ -368,6 +386,7 @@ label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
   width: 100%; text-align: left; border-radius: 0; background: none; border-left: 0; border-right: 0; border-top: 0;
 }
 .quickrow:last-child { border-bottom: 0; }
+.quickrow { transition: background .12s ease; }
 .quickrow:hover { background: var(--line-soft); }
 .quickrow .ic { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; flex: 0 0 36px; }
 .quickrow .ic.red { background: var(--emergency-tint); color: var(--emergency); }
@@ -580,7 +599,8 @@ h3 { font-size: 14.5px; margin: 0 0 4px; }
 
 .metric-hero {
   background: var(--card); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+  border-radius: var(--radius); box-shadow: var(--sh-sm);
+  padding: 20px; margin-bottom: 16px;
 }
 .metric-hero .n {
   font-size: 42px; font-weight: 800; line-height: 1;

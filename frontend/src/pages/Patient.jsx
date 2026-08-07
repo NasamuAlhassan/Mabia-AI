@@ -608,7 +608,8 @@ function Whereabouts({ dispatch, onDone }) {
         <input className="field" style={{ marginBottom: 0 }} value={note}
                onChange={e => setNote(e.target.value)} maxLength={200}
                placeholder="Where did he say he was?" />
-        <button className="small" disabled={busy || !note.trim()}>
+        <button className="small" disabled={busy || !note.trim()}
+                style={{ flex: '0 0 auto', whiteSpace: 'nowrap' }}>
           {busy ? 'Saving…' : 'Record it'}
         </button>
       </form>

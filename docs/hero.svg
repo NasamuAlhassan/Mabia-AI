@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420"
+     font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+     role="img" aria-label="Mabia AI. A danger sign is reported by phone, a health worker confirms it, drivers are rung in turn until one accepts, and the facility is told before she arrives.">
+
+  <!-- The chain this product exists to complete, drawn at the speed it runs.
+       Nothing here is invented for the picture: every step is a state the
+       backend actually moves through, and the driver cascade is the real
+       ranking - the man she named first, then her own community, then the
+       next village. -->
+
+  <style>
+    .bg      { fill: #06281B; }
+    .panel   { fill: #0A3A28; }
+    .rule    { stroke: #17543C; stroke-width: 1.5; }
+    .ink     { fill: #FFFFFF; }
+    .dim     { fill: #9DBFAE; }
+    .mark    { fill: #DCFAE6; }
+    .amber   { fill: #FDB022; }
+    .red     { fill: #F97066; }
+    .good    { fill: #6CE9A6; }
+
+    .h1 { font-size: 44px; font-weight: 700; letter-spacing: -0.5px; }
+    .h2 { font-size: 19px; font-weight: 400; }
+    .lb { font-size: 14px; font-weight: 600; }
+    .sm { font-size: 12.5px; font-weight: 400; }
+    .xs { font-size: 11px; font-weight: 700; letter-spacing: .09em; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    /* One 12-second loop, and every element sits on it.
+       The reveal point is baked into each keyframe rather than expressed as an
+       animation-delay. A delay gives each step its own cycle, so they fade out
+       one at a time in the order they arrived and the picture comes apart
+       instead of resetting. Here they accumulate, hold together, and clear
+       together, which is what makes it read as one event rather than six
+       things blinking. */
+    @keyframes r1 { 0%,1%  { opacity: 0 } 4%,96%  { opacity: 1 } 99%,100% { opacity: 0 } }
+    @keyframes r2 { 0%,15% { opacity: 0 } 18%,96% { opacity: 1 } 99%,100% { opacity: 0 } }
+    @keyframes r3 { 0%,29% { opacity: 0 } 32%,96% { opacity: 1 } 99%,100% { opacity: 0 } }
+    @keyframes r4 { 0%,43% { opacity: 0 } 46%,96% { opacity: 1 } 99%,100% { opacity: 0 } }
+    @keyframes r5 { 0%,62% { opacity: 0 } 65%,96% { opacity: 1 } 99%,100% { opacity: 0 } }
+    @keyframes r6 { 0%,74% { opacity: 0 } 77%,96% { opacity: 1 } 99%,100% { opacity: 0 } }
+
+    /* The thread reaches the last dot as it lights, then holds. */
+    @keyframes draw {
+      0%   { stroke-dashoffset: 1010; opacity: 1 }
+      64%  { stroke-dashoffset: 0 }
+      96%  { stroke-dashoffset: 0; opacity: 1 }
+      100% { stroke-dashoffset: 0; opacity: 0 }
+    }
+    @keyframes pulse { 0%,100% { opacity: .25 } 50% { opacity: .9 } }
+
+    .step { opacity: 0; animation-duration: 12s; animation-iteration-count: infinite; }
+    .s1 { animation-name: r1 } .s2 { animation-name: r2 } .s3 { animation-name: r3 }
+    .s4 { animation-name: r4 } .s5 { animation-name: r5 } .s6 { animation-name: r6 }
+
+    .thread {
+      stroke: #6CE9A6; stroke-width: 2.5; fill: none; stroke-linecap: round;
+      stroke-dasharray: 1010; stroke-dashoffset: 1010;
+      animation: draw 12s infinite cubic-bezier(.35,0,.25,1);
+    }
+    .ring { animation: pulse 1.1s infinite; }
+
+    /* What someone sees with animation switched off should be the finished
+       chain, not an empty green rectangle. */
+    @media (prefers-reduced-motion: reduce) {
+      .step, .thread, .ring { animation: none; opacity: 1; stroke-dashoffset: 0 }
+    }
+  </style>
+
+  <rect class="bg" width="1200" height="420" rx="16"/>
+
+  <!-- ========================================================== wordmark -->
+  <g transform="translate(56,64)">
+    <!-- A shield, because the platform's whole job is that nothing is lost. -->
+    <path d="M18 0 2 7v11c0 9.4 6.5 17.6 16 20 9.5-2.4 16-10.6 16-20V7L18 0Z"
+          fill="none" stroke="#6CE9A6" stroke-width="2.4"/>
+    <text class="h1 ink" x="52" y="30">Mabia AI</text>
+    <text class="xs dim" x="54" y="52">VOICE-FIRST MATERNAL CARE · NORTHERN GHANA</text>
+  </g>
+
+  <text class="h2 dim" x="56" y="152">
+    She has no airtime, no smartphone and no road. <tspan class="ink">The phone still rings.</tspan>
+  </text>
+
+  <!-- ============================================================ thread -->
+  <path class="thread" d="M96 250 H1104"/>
+
+  <!-- ============================================================= steps -->
+  <!-- Sub-labels are kept inside the 252px between dots. They ran wider than
+       the gap and step four's line printed straight through step five's. -->
+
+  <!-- 1. she reports -->
+  <g class="step s1" transform="translate(96,250)">
+    <circle r="9" class="amber"/>
+    <circle r="16" class="amber ring" fill-opacity=".25"/>
+    <text class="lb ink" x="-4" y="-36">Danger sign</text>
+    <text class="sm dim" x="-4" y="-18">She presses 1, in Dagbani</text>
+    <text class="mono sm dim" x="-4" y="40">00:00</text>
+  </g>
+
+  <!-- 2. a human -->
+  <g class="step s2" transform="translate(348,250)">
+    <circle r="9" class="mark"/>
+    <text class="lb ink" x="-4" y="-36">A person confirms it</text>
+    <text class="sm dim" x="-4" y="-18">Never automatic. Ever.</text>
+    <text class="mono sm dim" x="-4" y="40">00:41</text>
+  </g>
+
+  <!-- 3. the cascade -->
+  <g class="step s3" transform="translate(600,250)">
+    <circle r="9" class="mark"/>
+    <text class="lb ink" x="-4" y="-36">Drivers ring, in turn</text>
+    <text class="sm dim" x="-4" y="-18">Ranked, not guessed</text>
+    <text class="mono sm dim" x="-4" y="40">01:02</text>
+  </g>
+
+  <!-- 4. accepted -->
+  <g class="step s4" transform="translate(852,250)">
+    <circle r="9" class="good"/>
+    <circle r="16" class="good ring" fill-opacity=".25"/>
+    <text class="lb ink" x="-4" y="-36">Someone is coming</text>
+    <text class="sm dim" x="-4" y="-18">Alhassan, her village</text>
+    <text class="mono sm dim" x="-4" y="40">02:18</text>
+  </g>
+
+  <!-- 5. facility. Anchored to its right edge rather than nudged left by hand,
+       so it cannot grow back into the step before it. -->
+  <g class="step s5" transform="translate(1104,250)">
+    <circle r="9" class="good"/>
+    <text class="lb ink" x="4" y="-36" text-anchor="end">Facility told</text>
+    <text class="sm dim" x="4" y="-18" text-anchor="end">Before she arrives</text>
+    <text class="mono sm dim" x="4" y="40" text-anchor="end">04:12</text>
+  </g>
+
+  <!-- ==================================================== the cascade box -->
+  <!-- The distinctive part, given its own panel: the queue is ordered by who
+       she trusts, and it does not stop at the edge of her village. -->
+  <g class="step s6" transform="translate(600,300)">
+    <rect x="-300" y="0" width="600" height="94" rx="10" class="panel"/>
+    <line x1="-300" y1="32" x2="300" y2="32" class="rule"/>
+    <text class="xs dim" x="-282" y="21">THE QUEUE, AS IT ACTUALLY RAN</text>
+
+    <g transform="translate(-282,58)">
+      <circle cx="6" cy="-4" r="5" class="red"/>
+      <text class="sm dim" x="20" y="0">Iddrisu — could not come</text>
+    </g>
+    <g transform="translate(-282,80)">
+      <circle cx="6" cy="-4" r="5" class="good"/>
+      <text class="sm ink" x="20" y="0">Alhassan — on his way</text>
+    </g>
+
+    <text class="sm dim" x="10" y="58">She named Iddrisu herself, so he is asked first.</text>
+    <text class="sm dim" x="10" y="80">The queue does not stop at her village.</text>
+  </g>
+</svg>

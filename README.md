@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="docs/hero.svg" width="100%"
+       alt="Mabia AI. A danger sign is reported by phone at 00:00; a health worker confirms it at 00:41; drivers are rung in turn from 01:02; one accepts at 02:18; the facility is told at 04:12, before she arrives.">
+</p>
+
 # Mabia AI
 
 **CHPS Emergency Response, Voice Outreach and Nutrition Coordination Platform**
@@ -7,6 +12,32 @@ An offline-first voice platform that calls pregnant women and caregivers in thei
 Built for the **UNICEF StartUp Lab · AI for Nurturing Care Hackathon 2026**, for the Northern, North East, Savannah, Upper East and Upper West Regions of Ghana.
 
 > **Mabia** is the name of the language family spoken across most of Northern Ghana — Dagbani, Kusaal, Frafra and their siblings. It means *mother's child*, from **ma** (mother) and **bia** (child).
+
+**Live** → [mabia-ai.vercel.app](https://mabia-ai.vercel.app) · sign in with `+233200000001` / `1234`
+
+---
+
+## What a health worker sees
+
+Every screen below is the running product against its own seeded data. Nothing is a mockup.
+
+### Delay 2, made answerable on a quiet afternoon
+
+<p align="center"><img src="docs/transport.png" width="100%"
+  alt="The Transport screen. A red banner reads: one community has women enrolled and no vehicle that can carry them — Nyankpala. Below it, a live run: Alhassan Yakubu, car, last reported just past the Kpale junction. Below that, a coverage chart with Nyankpala at 140 minutes marked No vehicle, Kpale at 95 minutes, Sagnarigu at 20 minutes."></p>
+
+The map is drawn on **time from care**, not coordinates — because no driver in this system has coordinates, and none will. Riders in villages carry feature phones that report nothing, and dispatch has always worked on community. Each village sits at its *furthest* household; a mean would hide the compound an hour out. A broken line is a bad road.
+
+The row that matters is the red one: **women enrolled here, and nothing registered that can carry them.** That is knowable on a Tuesday, and until this screen existed nothing in the product ever said it.
+
+### The cascade, while it is running
+
+<p align="center"><img src="docs/emergency.png" width="100%"
+  alt="Amina Fuseini's record. Her antenatal contacts are shown as marks on the real week axis with four overdue behind week 32. An open emergency shows the transport queue: Iddrisu Mohammed could not come; Alhassan Yakubu is on his way; last reported just past the Kpale junction."></p>
+
+Left: her eight WHO antenatal contacts, as a **ruler of the schedule rather than a progress bar** — laid on the true week axis, so the way it tightens toward term is visible, and what is behind her sits behind the line marking where she is.
+
+Right: the queue as it actually ran. One declined, one is coming. Before anyone accepts, the men **not yet tried** stay on the list — because whether two more can be rung or nobody is left is what decides if she waits or goes to find a car herself.
 
 ---
 
@@ -25,7 +56,7 @@ That is the whole setup. No Docker, no Postgres, no telephony account — SQLite
 - **Sign in** → `+233200000001` / PIN `1234` (development only; the sign-in screen shows these in dev mode and never in production)
 
 ```bash
-./scripts/test.sh    # 230 backend, 6 frontend
+./scripts/test.sh    # 285 backend, 12 frontend
 ```
 
 ## Make it call a real phone
@@ -34,7 +65,7 @@ Everything operational is entered on the **Setup** screen in the browser, not in
 
 1. Open **Setup**.
 2. Switch the provider to **Africa's Talking** and paste your API key and username.
-3. Enter your **voice number** and **your own phone number** to test against.
+3. Enter your **voice number** — the number Africa's Talking issued you, which calls are placed *from* — and your **test phone**, which is the handset that rings. They are not the same number, and putting your own mobile in both is the commonest way to get this wrong.
 4. Expose the API so Africa's Talking can call back:
    ```bash
    ngrok http 8000
@@ -71,13 +102,21 @@ Root directory `backend`, from `render.yaml`:
 | `JWT_SECRET` | generated | Sign-in tokens. |
 | `SEED_ON_START` | `1` | Seeds the demo caseload into an empty database. |
 | `PYTHON_VERSION` | `3.11` | |
-| `DATABASE_URL` | *unset* | Unset means SQLite on the service's disk. See the note below. |
+| `DATABASE_URL` | Postgres | Set on the live deployment. Unset falls back to SQLite on the service's disk. See the note below. |
+| `CRON_TOKEN` | generated | Lets the scheduled workflows call `run-due` and `run-callbacks` without a user session. Nothing else accepts it. |
 | `GHANANLP_API_KEY` | *set in the dashboard* | Khaya translation and speech. Absent, the Voice screen reports Khaya as unconfigured and the platform runs on whatever audio is already recorded. |
-| `AT_USERNAME` / `AT_API_KEY` | *set in the dashboard* | Africa's Talking. Absent, calls are simulator-only — enough to demonstrate the whole flow, not enough to reach a real handset. |
+| `TELEPHONY_PROVIDER` | `africastalking` | `simulator` runs the whole flow on screen with no account at all. |
+| `AT_ENVIRONMENT` | `sandbox` or `live` | Two different hosts *and* two different usernames — in sandbox the username is literally `sandbox`. Mismatching them is a guaranteed 401, and the Setup screen now says so rather than showing green. |
+| `AT_USERNAME` / `AT_API_KEY` | *set in the dashboard* | Africa's Talking. Absent, calls are simulator-only. |
+| `AT_VOICE_NUMBER` | *set in the dashboard* | The number calls are placed **from**. Not your own handset — that goes in `TEST_PHONE`, which is the number that rings. |
 
-Those last three are declared in `render.yaml` with `sync: false`, which means Render prompts for the value and never stores it in the repository. **Neither is set on the live deployment today**, so `GET /api/language/status` returns `khaya_configured: false` and no call can reach a real phone. That is a deliberate, visible state rather than a silent failure — but it is the one thing standing between the demo and a live call.
+The credential rows are declared in `render.yaml` with `sync: false`, so Render prompts for the value and never stores it in the repository.
 
-**On storage:** the API runs on SQLite by default, which on Render's free plan means the disk is wiped on every deploy and the demo caseload is re-seeded. That is right for a demo and wrong for a pilot. To keep data between deploys, uncomment the `databases` block and the `DATABASE_URL` entry in `render.yaml` — `psycopg2-binary` is already installed, and `config.py` handles the legacy `postgres://` scheme Render still hands out.
+**Set them on the host, not on the Setup screen.** Every setting falls back to an environment variable of the same name in upper case, and that fallback is not cosmetic: settings typed into Setup are written to the database, and a deployment on the free plan without Postgres has that disk wiped on every deploy. A key typed in worked until the next push and then stopped, with nothing on screen changing when it did. Setup now labels each field with which source is in force and whether it survives a deploy.
+
+**On storage:** the live deployment runs Postgres, so data survives deploys. Unset, `DATABASE_URL` falls back to SQLite on the service's own disk — fine for a demo, wrong for a pilot. `psycopg2-binary` is already installed and `config.py` handles the legacy `postgres://` scheme Render still hands out.
+
+**On the scheduler:** it is not a Render cron. Render has no free plan for cron services, and a blueprint declaring one fails validation — which rejects the *whole file*, silently, so the service stops taking new deploys and keeps serving the last good build. It lives in `.github/workflows/` instead: `outreach.yml` places the day's due calls each morning, `callbacks.yml` drains the hotline queue every ten minutes so a missed call at two in the morning is not answered next morning. Both need `CRON_TOKEN` as a repository secret.
 
 **Two things that will bite if you change them.** `allow_credentials` must stay `False` while `allow_origins` can be `*` — browsers reject that combination outright and every request fails with an opaque CORS error. And `DATABASE_URL` pointing at Postgres without `psycopg2` installed gives a `ModuleNotFoundError` several frames inside SQLAlchemy; `config.py` now catches that at startup and says what to do.
 
@@ -92,7 +131,7 @@ These failures map onto the **Three Delays** (Thaddeus & Maine, 1994):
 | Delay | What fails | What Mabia AI does |
 |---|---|---|
 | **1 — Deciding to seek care** | Helplines wait passively; they assume a woman already knows something is wrong | The system **calls her**, on a schedule anchored to her pregnancy |
-| **2 — Reaching care** | Long distances, poor roads, almost no ambulances | Automated voice dispatch of community drivers, accepted by keypad |
+| **2 — Reaching care** | Long distances, poor roads, almost no ambulances | A roster of community drivers ranked by who she trusts, rung in turn and accepted by keypad — and a woman in labour can press **2** and be put through to her own driver without waiting for anyone |
 | **3 — Receiving adequate care** | Facilities learn of a case as the patient arrives; referral completion is never confirmed | Facility notified ahead with the reasons; case stays open until the outcome is logged |
 
 ---
@@ -120,7 +159,9 @@ flowchart TD
     O --> B
 ```
 
-A caregiver can also reach the platform at any time: she rings and hangs up, and the system **calls her back** — so reaching help never depends on having airtime at the moment of crisis. She can press **9** at any point to be routed to an on-call nurse. If nobody answers at any level of the cascade, the call still ends by telling her that her health worker has been alerted, and a RED is raised. **No call is permitted to end silently.**
+A caregiver can also reach the platform at any time: she rings and hangs up, and the system **calls her back** — so reaching help never depends on having airtime at the moment of crisis. She can press **9** at any point to be routed to an on-call nurse, or **2** to be connected straight to a driver.
+
+That second one does not break *nothing dispatches before a human confirms*. That rule governs the platform ringing round a village on its own judgement and telling a man to leave his house. Pressing 2 is a call she could place herself — the only reason she cannot is that it is two in the morning and his number is written on a wall at home. Nothing is decided: no dispatch is recorded, no cascade starts, no family is messaged. She is handed a line, and her health worker is told it happened. If her village has nobody, she reaches a nurse — never silence. If nobody answers at any level of the cascade, the call still ends by telling her that her health worker has been alerted, and a RED is raised. **No call is permitted to end silently.**
 
 ---
 

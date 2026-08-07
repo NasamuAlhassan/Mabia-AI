@@ -367,7 +367,8 @@ function Run({ driver, onDone }) {
         <input className="field" value={note} style={{ marginBottom: 0 }}
                onChange={e => setNote(e.target.value)}
                placeholder="Where did he say he was?" maxLength={200} />
-        <button className="primary" disabled={busy || !note.trim()}>
+        <button className="primary" disabled={busy || !note.trim()}
+                style={{ flex: '0 0 auto', whiteSpace: 'nowrap' }}>
           {busy ? 'Saving…' : 'Record it'}
         </button>
       </form>

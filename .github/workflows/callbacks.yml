@@ -38,8 +38,8 @@ jobs:
           CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
         run: |
           if [ -z "$CRON_TOKEN" ]; then
-            echo "CRON_TOKEN secret is not set — nothing would be authorised" >&2
-            exit 1
+            echo "CRON_TOKEN secret is not set — skipping callback drain" >&2
+            exit 0
           fi
           # No wake-up step and no retry loop, unlike the morning outreach run.
           # This fires every ten minutes; if the free dyno is asleep this call

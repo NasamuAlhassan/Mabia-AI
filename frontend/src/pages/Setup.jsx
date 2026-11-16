@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../api'
+import * as I from '../components/Icons'
 
 // The screen that turns this from a demo into something that rings a real
 // handset. Everything Africa's Talking needs goes in here, and the two test
@@ -91,7 +92,6 @@ export default function Setup() {
 
   return (
     <>
-      <h1>Setup</h1>
       <span className="sr-only" role="status">
         {readiness ? (readiness.can_call ? 'Ready to place calls'
           : 'Not yet able to place calls') : ''}
@@ -116,7 +116,9 @@ export default function Setup() {
           </div>
           {readiness.checks.map(c => (
             <div className="check" key={c.name}>
-              <span className="dot" aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
+              <span className={`check-ic ${c.ok ? 'ok' : 'bad'}`} aria-hidden="true">
+                {c.ok ? <I.Check size={14} /> : '!'}
+              </span>
               <span className="sr-only">{c.ok ? 'Ready:' : 'Missing:'}</span>
               <span><strong>{c.name}</strong> — <span className="muted">{c.detail}</span></span>
             </div>

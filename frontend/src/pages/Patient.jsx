@@ -79,7 +79,7 @@ export default function Patient() {
         </span>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.05fr) minmax(0,1.1fr) minmax(0,.85fr)' }}>
+      <div className="grid record-grid">
         {/* 1. Who she is */}
         <div>
           <div className="card">

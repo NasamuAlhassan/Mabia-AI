@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useData, Failed, Skeleton, ago } from '../lib/data'
 import CriticalAction from '../lib/CriticalAction'
 import { display as phone } from '../phone'
+import { user as storedUser } from '../api'
 import * as I from '../components/Icons'
 
 // The day, in the order it should be worked.
@@ -61,8 +62,40 @@ export default function Dashboard() {
     e => e.status === 'pending_validation')
   const due = contacts.data?.due || []
 
+  const hour = new Date().getHours()
+  const first = (storedUser.get()?.name || '').split(' ')[0]
+  const greeting = `Good ${hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'}${first ? `, ${first}` : ''}`
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const overdue = due.filter(c => c.due_date && new Date(c.due_date) < today)
+  const lead = open.length
+    ? `${open.length} ${open.length === 1 ? 'emergency is' : 'emergencies are'} waiting for you to respond.`
+    : high.length
+      ? `${high.length} ${high.length === 1 ? 'woman is' : 'women are'} at high risk. No emergency is open.`
+      : 'No emergency is open and nobody is at high risk.'
+
   return (
     <>
+      <h1 className="title">{greeting}</h1>
+      <p className="sub" style={{ marginBottom: 20 }}>{lead}</p>
+
+      <div className="plate" role="group" aria-label="Today at a glance">
+        <div>
+          <div className="k">Emergencies</div>
+          <div className={`n ${open.length ? 'alarm' : ''}`}>{open.length}</div>
+          <div className="s">{open.length ? 'Open, waiting on you' : 'None open'}</div>
+        </div>
+        <div>
+          <div className="k">High risk</div>
+          <div className="n">{high.length}</div>
+          <div className="s">{high.length ? 'Seen first' : 'All closed'}</div>
+        </div>
+        <div>
+          <div className="k">Overdue</div>
+          <div className="n">{overdue.length}</div>
+          <div className="s">visits, of {due.length} due</div>
+        </div>
+      </div>
+
       {/* 1. Whoever must be seen first, taking the top of the screen. */}
       <div className="card">
         <div className={`card-head ${high.length ? 'alarm' : ''}`}>
@@ -95,7 +128,7 @@ export default function Dashboard() {
                           onClick={e => e.stopPropagation()}>{p.name}</Link>
                   </td>
                   <td data-label="Risk level"><span className="pill high">HIGH</span></td>
-                  <td data-label="Reason">{(p.reason_codes || []).map(reasonLabel).join(', ')
+                  <td data-label="Reason">{(p.reason_codes || []).map(reasonLabel).join(' · ')
                        || 'Danger signs reported'}</td>
                   <td data-label="Distance">{p.minutes_to_facility != null
                         ? `${p.minutes_to_facility} min away`
@@ -116,15 +149,18 @@ export default function Dashboard() {
           </div>
           <div className="card-body">
             <div className="taskgroup">
-              Scheduled visits <span className="count-badge quiet">{due.length}</span>
+              Visits due <span className="count-badge quiet">{due.length}</span>
+              {overdue.length > 0 && (
+                <span className="pill medium">{overdue.length} overdue</span>
+              )}
             </div>
             {due.length === 0 && (
-              <div className="muted tiny">Nothing due today.</div>
+              <div className="muted tiny">Nothing due.</div>
             )}
             <div className="tasklist">
               {due.slice(0, 6).map(c => (
                 <div className="taskrow" key={c.contact_id}>
-                  <span className="when">
+                  <span className={`when ${c.due_date && new Date(c.due_date) < today ? 'late' : ''}`}>
                     {c.due_date ? new Date(c.due_date).toLocaleDateString(
                       undefined, { day: '2-digit', month: 'short' }) : '—'}
                   </span>
@@ -168,7 +204,7 @@ export default function Dashboard() {
                   <span className="pill high">HIGH RISK</span>
                 </div>
                 <div className="what">
-                  {(em.reasons || []).map(reasonLabel).join(', ')
+                  {(em.reasons || []).map(reasonLabel).join(' · ')
                    || 'Danger signs reported'}
                 </div>
                 <div className="far">
@@ -195,7 +231,6 @@ export default function Dashboard() {
                     doneLabel="Confirmed"
                     className="danger"
                     holdMs={700}
-                    holdHint={false}
                     onDone={() => { emergencies.reload(); list.reload() }} />
                   <button onClick={() => navigate(`/patients/${em.patient?.id}`)}>
                     Open record

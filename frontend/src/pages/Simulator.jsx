@@ -47,7 +47,6 @@ export default function Simulator() {
 
   return (
     <>
-      <h1>Calls</h1>
       <p className="muted">
         Answer a ringing handset and press keys. This drives the real call flow,
         so it works with no telephony account and no signal.

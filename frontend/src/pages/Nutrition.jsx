@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { get, post } from '../api'
 import { useData, Empty, Failed, Skeleton } from '../lib/data'
+import { REGIONS } from '../lib/regions'
+import Tabs from '../components/Tabs'
 
 // The nutrition officer's screen.
 //
@@ -14,7 +16,6 @@ import { useData, Empty, Failed, Skeleton } from '../lib/data'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                 'August', 'September', 'October', 'November', 'December']
-const REGIONS = ['Northern', 'North East', 'Savannah', 'Upper East', 'Upper West']
 
 export default function Nutrition() {
   const caseload = useData('/api/worklist/nutrition', { interval: 30000 })
@@ -22,15 +23,10 @@ export default function Nutrition() {
 
   return (
     <>
-      <h1>Nutrition</h1>
-
-      <div className="chips" style={{ marginBottom: 16 }}>
-        {[['caseload', 'Who needs attention'], ['bench', 'What we would advise']]
-          .map(([key, label]) => (
-            <button key={key} className="chip" aria-pressed={tab === key}
-                    onClick={() => setTab(key)}>{label}</button>
-          ))}
-      </div>
+      <Tabs quiet label="Nutrition" value={tab} onChange={setTab} items={[
+        { key: 'caseload', label: 'Who needs attention' },
+        { key: 'bench', label: 'What we would advise' },
+      ]} />
 
       {tab === 'caseload' ? <Caseload state={caseload} /> : <Bench />}
     </>
@@ -127,9 +123,10 @@ function Series({ label, values, trend, thresholds }) {
         )}
       </div>
       {/* A spark line, drawn with plain divs: no chart library on a phone that
-          has to load over 2G. */}
-      <div style={{ position: 'relative', height: 26, marginTop: 4,
-                    borderBottom: '1px solid var(--line)' }}
+          has to load over 2G. The red line is where concern starts; the
+          caption below says so, because a mark with no key is a guess. */}
+      <div style={{ position: 'relative', height: 30, marginTop: 6,
+                    borderBottom: '1px solid var(--line-strong)' }}
            role="img"
            aria-label={`${label}: ${values.join(' then ')} centimetres`}>
         {thresholds.map(t => (
@@ -147,6 +144,10 @@ function Series({ label, values, trend, thresholds }) {
           }} />
         ))}
       </div>
+      <div className="tiny muted" style={{ marginTop: 4 }}>
+        Red line{thresholds.length > 1 ? 's' : ''}: below {thresholds.join(' cm, below ')} cm
+        {thresholds.length > 1 ? ' is a concern' : ' is a concern'}
+      </div>
     </div>
   )
 }
@@ -156,7 +157,9 @@ function Bench() {
   const [instrument, setInstrument] = useState('mdd_w')
   const [present, setPresent] = useState([])
   const [month, setMonth] = useState(new Date().getMonth() + 1)
-  const [region, setRegion] = useState('Northern')
+  // Empty means "not specified", which the engine answers with only the foods
+  // sold and grown everywhere -- not with one region's advice by default.
+  const [region, setRegion] = useState('')
   const [afford, setAfford] = useState('low')
   const [anaemia, setAnaemia] = useState(false)
   const [result, setResult] = useState(null)
@@ -170,7 +173,7 @@ function Bench() {
     let cancelled = false
     const timer = setTimeout(() => {
       post('/api/nutrition/assess', {
-        instrument, present, month, region, affordability: afford,
+        instrument, present, month, region: region || null, affordability: afford,
         anaemia_focus: anaemia,
       })
         .then(r => { if (!cancelled) { setResult(r); setStale(null) } })
@@ -226,6 +229,7 @@ function Bench() {
           <div className="field" style={{ flex: 1, minWidth: 130 }}>
             <label htmlFor="rg">Region</label>
             <select id="rg" value={region} onChange={e => setRegion(e.target.value)}>
+              <option value="">Not specified</option>
               {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>

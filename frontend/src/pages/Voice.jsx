@@ -75,7 +75,6 @@ export default function Voice() {
 
   return (
     <>
-      <h1>Voice</h1>
       <p className="muted">
         What the platform says out loud, and in which languages it can actually
         say it.
@@ -142,7 +141,7 @@ export default function Voice() {
           {/* Which routes can actually speak this language, and which cannot.
               A judge asking "what happens when your API runs out" should be
               able to read the answer off the screen. */}
-          <div className="row wrap" style={{ gap: 6, margin: '10px 0' }}>
+          <div className="row wrap" style={{ gap: 6, marginTop: 10, marginBottom: 10 }}>
             <span className="muted tiny">Speech routes:</span>
             {(here.routes || []).length === 0 ? (
               <span className="badge red">none — human voice only</span>
@@ -281,7 +280,7 @@ function PhraseRow({ phrase, onChange }) {
         }`}>{state}</span>
       </div>
 
-      <div className="muted tiny" style={{ margin: '.35rem 0' }}>{phrase.english}</div>
+      <div className="muted tiny" style={{ marginTop: '.35rem', marginBottom: '.35rem' }}>{phrase.english}</div>
 
       {editing ? (
         <>

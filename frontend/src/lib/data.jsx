@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, get } from '../api'
 import { cache } from '../db'
+import * as I from '../components/Icons'
 
 // Cache-first reads, with the age on screen.
 //
@@ -122,6 +123,7 @@ export function Skeleton({ rows = 4 }) {
 export function Empty({ title, children }) {
   return (
     <div className="empty">
+      <span className="empty-ic"><I.Check size={20} /></span>
       <div className="big">{title}</div>
       {children && <div className="muted">{children}</div>}
     </div>

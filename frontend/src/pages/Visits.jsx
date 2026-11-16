@@ -68,12 +68,12 @@ export default function Visits() {
           <span className="spacer" />
           <span className="row" style={{ gap: 6 }}>
             <button className={`small ${tab === 'due' ? 'primary' : ''}`}
-                    onClick={() => setTab('due')}>All due ({rows.length})</button>
+                    aria-pressed={tab === 'due'} onClick={() => setTab('due')}>All due ({rows.length})</button>
             <button className={`small ${tab === 'overdue' ? 'primary' : ''}`}
-                    onClick={() => setTab('overdue')}>Overdue ({overdue.length})</button>
+                    aria-pressed={tab === 'overdue'} onClick={() => setTab('overdue')}>Overdue ({overdue.length})</button>
           </span>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="tablewrap">
           <table className="table">
             <thead>
               <tr>

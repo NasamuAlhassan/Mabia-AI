@@ -39,7 +39,7 @@ export default function Facility() {
 
   return (
     <>
-      <BackLink />
+      <BackLink to="/visits" label="Back to Visits" />
       <h1>Facility</h1>
       <span className="sr-only" role="status">
         {rows.length} {rows.length === 1 ? 'case' : 'cases'} inbound
@@ -84,7 +84,7 @@ function Case({ row, onDone, arrived = false }) {
       </div>
       <div className="muted tiny">{row.patient?.community}</div>
 
-      <p style={{ margin: '12px 0 8px', fontSize: '1.05rem' }}>
+      <p style={{ marginTop: 12, marginBottom: 8, fontSize: '1.05rem' }}>
         {(row.reasons || []).map(reasonLabel).join(' · ') || 'Emergency'}
       </p>
 

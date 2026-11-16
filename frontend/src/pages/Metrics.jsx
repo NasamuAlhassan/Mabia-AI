@@ -33,25 +33,29 @@ export default function Metrics() {
 
       <div className="card">
         <h2>Where people are lost</h2>
-        <p className="muted tiny">
-          The Three Delays, measured. Each bar is how many cases got that far;
-          the number beside it is how many did not.
+        <p className="muted tiny" style={{ marginBottom: 16 }}>
+          The Three Delays, measured. Each bar is how many cases got that far,
+          and underneath it is how many did not.
         </p>
         <div className="funnel" role="list">
           {funnel.map((step, i) => (
             <div className={`funnel-step ${step.lost > 0 ? 'drop' : ''}`}
                  key={step.stage} role="listitem">
-              <div className="funnel-bar" aria-hidden="true"
-                   style={{ width: `${Math.max(6, (step.count / top) * 55)}%` }}>
-                {step.count}
+              <div className="funnel-top">
+                <span className="funnel-label">
+                  {step.stage}
+                  <span className="funnel-delay">Delay {step.delay}</span>
+                </span>
+                <span className="funnel-count">
+                  <span className="sr-only">cases reached: </span>{step.count}
+                </span>
               </div>
-              <span className="sr-only">{step.count} cases reached: </span>
-              <div className="funnel-label">
-                {step.stage}
-                <span className="muted tiny"> · Delay {step.delay}</span>
+              <div className="funnel-track" aria-hidden="true">
+                <div className="funnel-bar"
+                     style={{ width: `${step.count ? Math.max(3, (step.count / top) * 100) : 0}%` }} />
               </div>
               {step.lost > 0 && i > 0 && (
-                <div className="funnel-lost">−{step.lost}</div>
+                <div className="funnel-lost">{step.lost} did not get this far</div>
               )}
             </div>
           ))}
@@ -60,9 +64,13 @@ export default function Metrics() {
 
       <div className="card">
         <h2>Nutrition gaps closed</h2>
-        <p style={{ fontSize: '1.6rem', fontWeight: 700, margin: '4px 0' }}>
-          {data.counts.gaps_closed} of {data.counts.gaps_measured}
+        <p className="bignum">
+          {data.counts.gaps_closed}<span> of {data.counts.gaps_measured}</span>
         </p>
+        <div className="funnel-track" style={{ margin: '0 20px 12px', width: 'auto' }} aria-hidden="true">
+          <div className="funnel-bar" style={{ width: `${data.counts.gaps_measured
+            ? (data.counts.gaps_closed / data.counts.gaps_measured) * 100 : 0}%` }} />
+        </div>
         <p className="muted tiny">
           Food groups that were missing at one contact and had come back by the
           next. Most systems can report that advice was delivered; this reports
@@ -73,7 +81,7 @@ export default function Metrics() {
 
       <div className="card">
         <h2>Reach</h2>
-        <table className="table">
+        <table className="table facts">
           <tbody>
             <Row label="Women enrolled" value={data.enrolled} />
             <Row label="Contacted on schedule" value={pct(data.reach_rate)} />

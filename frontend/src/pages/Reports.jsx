@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Metrics from './Metrics'
 import Nutrition from './Nutrition'
+import Tabs from '../components/Tabs'
 import * as I from '../components/Icons'
 
 // Two reports that answer different questions, behind one word in the rail.
@@ -22,18 +23,14 @@ export default function Reports() {
         What the programme is achieving, and what the households are eating.
       </p>
 
-      <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <button className={view === 'indicators' ? 'primary' : ''}
-                onClick={() => set('indicators')}>
-          <I.Chart size={16} /> Indicators
-        </button>
-        <button className={view === 'nutrition' ? 'primary' : ''}
-                onClick={() => set('nutrition')}>
-          <I.Baby size={16} /> Nutrition
-        </button>
-      </div>
+      <Tabs label="Reports" value={view} onChange={set} items={[
+        { key: 'indicators', label: 'Indicators', Icon: I.Chart },
+        { key: 'nutrition', label: 'Nutrition', Icon: I.Baby },
+      ]} />
 
-      {view === 'indicators' ? <Metrics /> : <Nutrition />}
+      <div className="view">
+        {view === 'indicators' ? <Metrics /> : <Nutrition />}
+      </div>
     </>
   )
 }

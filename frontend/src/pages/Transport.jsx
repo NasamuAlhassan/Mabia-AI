@@ -348,14 +348,14 @@ function Run({ driver, onDone }) {
           {run.status === 'accepted' ? 'On the road' : 'Ringing'}
         </span>
       </div>
-      <p className="tiny muted" style={{ margin: '4px 0 12px' }}>
+      <p className="tiny muted" style={{ marginTop: 4, marginBottom: 12 }}>
         {driver.name} · {VEHICLE_LABEL[driver.vehicle_type] || driver.vehicle_type}
         {' · '}
         <a href={`tel:${driver.phone}`}>{phone(driver.phone)}</a>
         {run.community && ` · from ${run.community}`}
       </p>
 
-      <p style={{ margin: '0 0 10px' }}>
+      <p style={{ marginBottom: 10 }}>
         {run.location_note
           ? <>Last reported <strong>{run.location_note}</strong>, {ago(run.location_at)}</>
           : <span className="muted">Nobody has asked him where he is yet.</span>}

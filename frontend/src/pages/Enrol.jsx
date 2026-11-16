@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { ApiError, post } from '../api'
 import { outbox, uuid7 } from '../db'
 import CareCircle from '../components/CareCircle'
+import { BackLink } from '../App'
+import * as I from '../components/Icons'
+import { REGIONS } from '../lib/regions'
 
 // Enrolment happens in a compound, standing up, often with no signal.
 //
@@ -23,7 +26,10 @@ const STEPS = ['Who she is', 'Where she is', 'Her household', 'Consent']
 
 const BLANK = {
   name: '', phone: '', secondary_name: '', secondary_phone: '',
-  language: 'dagbani', community: 'Kpale', region: 'Northern', edd: '',
+  // Community and region start empty. They used to start as "Kpale" and
+  // "Northern", which for anyone enrolling outside that one village meant the
+  // wrong answer was already filled in and only correct if she noticed.
+  language: 'dagbani', community: '', region: '', edd: '',
   minutes_to_facility: '', road_condition: 'fair', affordability: 'low',
 }
 
@@ -40,21 +46,32 @@ export default function Enrol() {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const allConsented = consents.calls && consents.record
 
-  function validate() {
+  // Each step checks only the fields it shows. An error on a field that is not
+  // on screen leaves "Next" doing nothing with no explanation.
+  function validate(forStep) {
     const next = {}
-    if (!f.name.trim()) next.name = 'Her name is needed.'
-    // Accept it however she writes it -- 024 000 0001, 024-000-0001,
-    // +233 24 000 0001. The server settles on one form; she should not have to.
-    if (!/^\+?\d{9,15}$/.test(f.phone.replace(/[\s()\-.]/g, ''))) {
-      next.phone = 'A phone number like 024 000 0001.'
+    if (forStep === 0) {
+      if (!f.name.trim()) next.name = 'Her name is needed.'
+      // Accept it however she writes it -- 024 000 0001, 024-000-0001,
+      // +233 24 000 0001. The server settles on one form; she should not have to.
+      if (!/^\+?\d{9,15}$/.test(f.phone.replace(/[\s()\-.]/g, ''))) {
+        next.phone = 'A phone number like 024 000 0001.'
+      }
     }
-    if (!f.community.trim()) next.community = 'Which community?'
+    if (forStep === 1) {
+      if (!f.community.trim()) next.community = 'Which community?'
+      if (!REGIONS.includes(f.region)) next.region = 'Which region?'
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
 
   async function submit() {
-    if (!validate()) { setStep(0); return }
+    // Walk the steps in order and stop on the first one with a problem, so the
+    // error is shown on the step it belongs to.
+    for (const s of [0, 1]) {
+      if (!validate(s)) { setStep(s); return }
+    }
     setBusy(true); setFlash(null)
     const event_id = uuid7()
     const body = {
@@ -92,8 +109,8 @@ export default function Enrol() {
 
   if (step === 4) {
     return (
-      <div className="card">
-        <h1>{flash?.queued ? 'Saved on this phone' : 'Enrolled'}</h1>
+      <div className="card wizard" style={{ padding: '24px 20px' }}>
+        <h1 className="title" style={{ fontSize: 32 }}>{flash?.queued ? 'Saved on this phone' : 'Enrolled'}</h1>
         <p style={{ fontSize: '1.1rem' }}>
           <strong>{flash?.name}</strong>{' '}
           {flash?.queued
@@ -125,8 +142,8 @@ export default function Enrol() {
               Open her record
             </button>
           )}
-          <button className="quiet wide" onClick={() => navigate('/worklist')}>
-            Back to the worklist
+          <button className="quiet wide" onClick={() => navigate('/dashboard')}>
+            Back to the dashboard
           </button>
         </div>
       </div>
@@ -134,12 +151,20 @@ export default function Enrol() {
   }
 
   return (
-    <>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>{STEPS[step]}</h1>
-        <span className="spacer" />
-        <span className="muted tiny">Step {step + 1} of 4</span>
-      </div>
+    <div className="wizard">
+      <BackLink to="/visits" label="Back to Visits" />
+      <div className="eyebrow muted">Enrol a household</div>
+      <h1 className="title" style={{ marginTop: 6 }}>{STEPS[step]}</h1>
+
+      <ol className="stepper" aria-label={`Step ${step + 1} of ${STEPS.length}`}>
+        {STEPS.map((name, i) => (
+          <li key={name} className={i < step ? 'done' : i === step ? 'now' : ''}
+              aria-current={i === step ? 'step' : undefined}>
+            <span className="stepper-dot">{i < step ? <I.Check size={13} /> : i + 1}</span>
+            <span className="stepper-name">{name}</span>
+          </li>
+        ))}
+      </ol>
 
       {flash?.bad && <div className="notice bad" role="alert">{flash.text}</div>}
 
@@ -189,11 +214,16 @@ export default function Enrol() {
             </div>
             <div className="field">
               <label htmlFor="r">Region</label>
-              <select id="r" value={f.region} onChange={set('region')}>
-                {['Northern', 'North East', 'Savannah', 'Upper East', 'Upper West']
-                  .map(x => <option key={x} value={x}>{x}</option>)}
+              <select id="r" value={f.region} onChange={set('region')}
+                      aria-invalid={!!errors.region}>
+                <option value="" disabled>Choose a region</option>
+                {REGIONS.map(x => <option key={x} value={x}>{x}</option>)}
               </select>
-              <div className="help">Nutrition advice is filtered by region and month.</div>
+              {errors.region && <div className="error">{errors.region}</div>}
+              <div className="help">
+                Nutrition advice is filtered by region and month, and the
+                seasons differ between the north and the south.
+              </div>
             </div>
             <div className="field">
               <label htmlFor="mins">How long to the health centre, in minutes?</label>
@@ -292,14 +322,14 @@ export default function Enrol() {
         )}
       </div>
 
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row wizard-actions">
         {step > 0 && (
           <button className="quiet" onClick={() => setStep(s => s - 1)}>Back</button>
         )}
         <span className="spacer" />
         {step < 3 ? (
           <button className="primary" onClick={() => {
-            if (step === 0 && !validate()) return
+            if (!validate(step)) return
             setStep(s => s + 1)
           }}>Next</button>
         ) : (
@@ -308,6 +338,6 @@ export default function Enrol() {
           </button>
         )}
       </div>
-    </>
+    </div>
   )
 }

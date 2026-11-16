@@ -40,6 +40,13 @@ export default function Patients() {
   if (list.loading && !list.data) return <Skeleton rows={8} />
   if (!list.data) return <Failed error={list.error} onRetry={list.reload} />
 
+  const all = list.data.patients || []
+  const count = (lvl) => all.filter(p => p.risk_level === lvl).length
+  const levels = [
+    ['all', 'Everyone', all.length], ['red', 'High', count('red')],
+    ['amber', 'Medium', count('amber')], ['green', 'Low', count('green')],
+  ]
+
   const pages = Math.max(1, Math.ceil(rows.length / PAGE))
   const here = Math.min(page, pages - 1)
   const shown = rows.slice(here * PAGE, here * PAGE + PAGE)
@@ -47,7 +54,10 @@ export default function Patients() {
   return (
     <>
       <h1>Patients</h1>
-      <p className="sub">View and manage every registered household.</p>
+      <p className="sub">
+        {all.length} registered {all.length === 1 ? 'household' : 'households'}.
+        {count('red') > 0 && ` ${count('red')} at high risk, listed first.`}
+      </p>
 
       <div className="card">
         <div className="card-body" style={{ borderBottom: '1px solid var(--line)' }}>
@@ -58,21 +68,22 @@ export default function Patients() {
                      placeholder="Search by name, village or ID…"
                      onChange={e => { setQuery(e.target.value); setPage(0) }} />
             </div>
-            <select value={level} aria-label="Filter by risk level"
-                    style={{ flex: '0 0 190px' }}
-                    onChange={e => { setLevel(e.target.value); setPage(0) }}>
-              <option value="all">All risk levels</option>
-              <option value="red">High only</option>
-              <option value="amber">Medium only</option>
-              <option value="green">Low only</option>
-            </select>
-            <button onClick={() => navigate('/visits/enrol')}>
+            <button className="primary" onClick={() => navigate('/visits/enrol')}>
               <I.AddPerson size={16} /> Add patient
             </button>
           </div>
+          <div className="chips filters" role="group" aria-label="Filter by risk level">
+            {levels.map(([key, label, n]) => (
+              <button key={key} type="button" className={`chip risk-${key}`}
+                      aria-pressed={level === key}
+                      onClick={() => { setLevel(key); setPage(0) }}>
+                {label} <span className="chip-n">{n}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="tablewrap">
           <table className="table">
             <thead>
               <tr>
@@ -123,8 +134,18 @@ export default function Patients() {
                 </tr>
               ))}
               {shown.length === 0 && (
-                <tr><td data-label="Patient name" colSpan={7} className="muted tiny" style={{ padding: 22 }}>
-                  Nobody matches that. Clear the search to see the whole list.
+                <tr className="empty-row"><td colSpan={7}>
+                  <div className="empty" style={{ padding: '28px 12px' }}>
+                    <span className="empty-ic"><I.Search size={18} /></span>
+                    <div className="big">Nobody matches that</div>
+                    <div className="muted">
+                      {query ? `Nothing for “${query.trim()}”.` : 'Nobody is at that risk level.'}
+                    </div>
+                    <button className="small" style={{ marginTop: 12 }}
+                            onClick={() => { setQuery(''); setLevel('all'); setPage(0) }}>
+                      Clear search and filters
+                    </button>
+                  </div>
                 </td></tr>
               )}
             </tbody>

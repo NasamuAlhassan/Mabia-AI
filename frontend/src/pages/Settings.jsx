@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom'
 import Setup from './Setup'
 import Simulator from './Simulator'
 import Voice from './Voice'
+import Tabs from '../components/Tabs'
 import * as I from '../components/Icons'
 
 // Everything operational, and nothing clinical.
@@ -23,24 +24,17 @@ export default function Settings() {
         Telephony, language and the tools for proving the flow without a SIM.
       </p>
 
-      <div className="row" style={{ gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <button className={view === 'service' ? 'primary' : ''}
-                onClick={() => set('service')}>
-          <I.Gear size={16} /> Service
-        </button>
-        <button className={view === 'voice' ? 'primary' : ''}
-                onClick={() => set('voice')}>
-          <I.Radio size={16} /> Language and voice
-        </button>
-        <button className={view === 'calls' ? 'primary' : ''}
-                onClick={() => set('calls')}>
-          <I.Phone size={18} /> Test calls
-        </button>
-      </div>
+      <Tabs label="Settings" value={view} onChange={set} items={[
+        { key: 'service', label: 'Service', Icon: I.Gear },
+        { key: 'voice', label: 'Voice', Icon: I.Radio },
+        { key: 'calls', label: 'Test calls', Icon: I.Phone },
+      ]} />
 
-      {view === 'service' && <Setup />}
-      {view === 'voice' && <Voice />}
-      {view === 'calls' && <Simulator />}
+      <div className="view">
+        {view === 'service' && <Setup />}
+        {view === 'voice' && <Voice />}
+        {view === 'calls' && <Simulator />}
+      </div>
     </>
   )
 }

@@ -11,7 +11,7 @@ export default defineConfig({
         name: 'Mabia AI',
         short_name: 'Mabia',
         description: 'CHPS emergency response, voice outreach and nutrition coordination',
-        theme_color: '#0b3b60',
+        theme_color: '#06281B',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',

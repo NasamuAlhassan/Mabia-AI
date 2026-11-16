@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
-  BrowserRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate,
+  BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes, useLocation,
+  useNavigate,
 } from 'react-router-dom'
 
 import { post, token, user as storedUser } from './api'
 import { flush, outbox } from './db'
-import { ago } from './lib/data'
+import { ago, useData } from './lib/data'
 import * as I from './components/Icons'
+import { AttentionMenu, UserMenu } from './components/HeaderMenus'
+import { Toaster, toast } from './components/Toast'
 
 import Dashboard from './pages/Dashboard'
 import Enrol from './pages/Enrol'
@@ -40,6 +43,13 @@ const NAV = [
 
 const SUN_KEY = 'mabia.sun'
 
+const TITLES = [
+  ['/patients/', 'Patient record'], ['/visits/enrol', 'Enrol a household'],
+  ['/visits/facility', 'Facility'], ['/dashboard', 'Dashboard'],
+  ['/patients', 'Patients'], ['/visits', 'Visits'], ['/transport', 'Transport'],
+  ['/reports', 'Reports'], ['/settings', 'Settings'],
+]
+
 function Shell({ children }) {
   const location = useLocation()
   const [pending, setPending] = useState(0)
@@ -49,14 +59,30 @@ function Shell({ children }) {
     Number(localStorage.getItem('mabia.lastSync')) || null)
   const [sun, setSun] = useState(localStorage.getItem(SUN_KEY) === 'on')
   const [syncing, setSyncing] = useState(false)
-  const [drawer, setDrawer] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  // An open emergency is visible from every screen. It used to live only on the
+  // dashboard, so a worker reading a patient record or filling in an enrolment
+  // could sit beside one for as long as it took her to go back and look.
+  const emergencies = useData('/api/emergencies', { interval: 30000 })
+  const waiting = (emergencies.data || []).filter(e => e.status === 'pending_validation')
+
+  useEffect(() => {
+    const entry = TITLES.find(([prefix]) => location.pathname.startsWith(prefix))
+    document.title = `${waiting.length ? `(${waiting.length}) ` : ''}${entry ? entry[1] + ' · ' : ''}Mabia AI`
+  }, [location.pathname, waiting.length])
+
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 4)
+    on()
+    window.addEventListener('scroll', on, { passive: true })
+    return () => window.removeEventListener('scroll', on)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.sun = sun ? 'on' : 'off'
     localStorage.setItem(SUN_KEY, sun ? 'on' : 'off')
   }, [sun])
-
-  useEffect(() => { setDrawer(false) }, [location.pathname])
 
   useEffect(() => {
     const tick = async () => {
@@ -83,17 +109,24 @@ function Shell({ children }) {
     }
   }, [location.pathname])
 
-  async function sync() {
+  async function sync({ announce = false } = {}) {
     setSyncing(true)
     try {
-      await flush(post)
+      const out = await flush(post)
       const now = Date.now()
       setLastSync(now)
       localStorage.setItem('mabia.lastSync', String(now))
-      setPending((await outbox.sendable().catch(() => [])).length)
+      const left = (await outbox.sendable().catch(() => [])).length
+      setPending(left)
       setRefused(await outbox.rejected().catch(() => []))
+      if (announce) {
+        toast(out?.sent ? `Sent ${out.sent} ${out.sent === 1 ? 'record' : 'records'}.`
+                         : 'Up to date. Nothing was waiting.')
+      }
+      emergencies.reload({ quiet: true })
     } catch {
       // Stays queued. The bar keeps saying so rather than clearing the badge.
+      if (announce) toast('Could not reach the server. Your records are safe on this phone.', 'bad')
     } finally {
       setSyncing(false)
     }
@@ -111,55 +144,32 @@ function Shell({ children }) {
 
   return (
     <div className="shell">
-      {drawer && <div className="rail-scrim" onClick={() => setDrawer(false)} />}
-
-      {/* On a phone this same list becomes the bottom bar, because a fixed
-          sidebar on a 390px screen is a drawer nobody opens. */}
-      <aside className={`rail ${drawer ? 'open' : ''}`}>
-        <div className="rail-brand">
+      <a href="#main" className="skip">Skip to content</a>
+      <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
+        <NavLink to="/dashboard" className="brand" aria-label="Mabia AI, dashboard">
           <span className="rail-mark"><I.Logo /></span>
           <span className="rail-name">
             Mabia AI
             <span>Care Network</span>
           </span>
-        </div>
-        <div className="rail-kicker">CHPS Worker System</div>
+        </NavLink>
 
-        <nav aria-label="Sections">
-          {NAV.map(({ to, label, Icon }) => (
+        {/* The sections, as a floating pill. On a phone this same list is the
+            bottom bar, because a menu button hides the one thing she needs. */}
+        <nav className="pillnav" aria-label="Sections">
+          {NAV.map(({ to, label }) => (
             <NavLink key={to} to={to}
                      className={({ isActive }) => isActive ? 'active' : ''}>
-              <Icon />
-              <span>{label}</span>
+              {label}
             </NavLink>
           ))}
         </nav>
 
-        <div className="rail-foot">
-          <div className="rail-status">
-            <div className="t"><I.Cloud /> System Status</div>
-            <div className="r">
-              <span className={`dot ${online ? '' : 'off'}`} />
-              {online ? 'Online' : 'Offline'}
-            </div>
-            <div className="s">Last sync: {ago(lastSync)}</div>
-          </div>
-        </div>
-      </aside>
-
-      <div className="main">
-        <header className="topbar">
-          <button className="burger" onClick={() => setDrawer(d => !d)}
-                  aria-label="Menu"><I.Burger /></button>
-
-          <span className="spacer" />
-
-          <div className="sysline">
+        <div className="toolbar">
+          <div className="sysline" role="status">
             <span className={`dot ${online ? '' : 'off'}`} />
             <span>
-              <span className="l" style={{ display: 'block' }}>
-                {online ? 'Online' : 'Offline'}
-              </span>
+              <span className="l">{online ? 'Online' : 'Offline'}</span>
               <span className="s">
                 {online ? 'All systems operational' : 'Working from this phone'}
               </span>
@@ -168,29 +178,36 @@ function Shell({ children }) {
 
           <span className="topdiv" />
 
-          <button className="bell" onClick={sync}
-                  aria-label={`${refused.length + pending} items need attention`}>
-            <I.Bell />
-            {(refused.length + pending) > 0 && (
-              <span className="count">{refused.length + pending}</span>
-            )}
+          <AttentionMenu emergencies={waiting} pending={pending} refused={refused}
+                         syncing={syncing} online={online}
+                         onSync={() => sync({ announce: true })} />
+
+          <button className="sunbtn small" onClick={() => setSun(s => !s)}
+                  aria-pressed={sun}
+                  title="Maximum contrast, for a screen in direct sunlight">
+            Sunlight
           </button>
 
-          <span className="topdiv" />
+          <UserMenu me={me} initials={initials} role={role} sun={sun}
+                    setSun={setSun} pending={pending} />
+        </div>
+      </header>
 
-          <div className="whoami">
-            <span className="avatar">{initials || '—'}</span>
-            <span className="whotext">
-              <span className="n">{me?.name || 'Signed in'}</span>
-              <span className="r">{role}</span>
+      <div className="main">
+        {waiting.length > 0 && !location.pathname.startsWith('/dashboard') && (
+          <Link className="alarmbar" role="alert"
+                to={waiting[0].patient?.id ? `/patients/${waiting[0].patient.id}` : '/dashboard'}>
+            <I.Warning size={18} />
+            <span>
+              <strong>
+                {waiting.length === 1 ? (waiting[0].patient?.name || 'An emergency')
+                                       : `${waiting.length} emergencies`}
+              </strong>
+              {' '}{waiting.length === 1 ? 'is waiting for you to respond.' : 'are waiting for you to respond.'}
             </span>
-            <button className="quiet small" onClick={() => setSun(s => !s)}
-                    aria-pressed={sun}
-                    title="Maximum contrast, for a screen in direct sunlight">
-              {sun ? 'Sun on' : 'Sun'}
-            </button>
-          </div>
-        </header>
+            <span className="alarmbar-go">Open <I.Chevron size={14} /></span>
+          </Link>
+        )}
 
         {/* The server refused these and this device is the only copy. Loud,
             permanent until dealt with, and never folded into "waiting to
@@ -221,14 +238,16 @@ function Shell({ children }) {
           </span>
           <span className="spacer" />
           {online && (
-            <button onClick={sync} disabled={syncing}>
+            <button onClick={() => sync({ announce: true })} disabled={syncing}>
               {syncing ? <span className="spin" /> : 'Sync now'}
             </button>
           )}
         </div>
 
-        <main className="page">{children}</main>
+        <main className="page enter" id="main" tabIndex={-1} key={location.pathname}>{children}</main>
       </div>
+
+      <Toaster />
 
       <nav className="tabbar" aria-label="Main">
         {NAV.map(({ to, label, Icon }) => (
@@ -253,9 +272,12 @@ export function BackLink({ to = '/patients', label = 'Back to Patients' }) {
   )
 }
 
-function Guard({ children }) {
+// One shell for every signed-in screen. It used to be wrapped around each page
+// separately, which threw the header away and rebuilt it -- and re-ran the sync
+// and the emergency poll -- on every single navigation.
+function Layout() {
   if (!token.get()) return <Navigate to="/login" replace />
-  return <Shell>{children}</Shell>
+  return <Shell><Outlet /></Shell>
 }
 
 export default function App() {
@@ -269,15 +291,17 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<Guard><Dashboard /></Guard>} />
-        <Route path="/patients" element={<Guard><Patients /></Guard>} />
-        <Route path="/patients/:id" element={<Guard><Patient /></Guard>} />
-        <Route path="/visits" element={<Guard><Visits /></Guard>} />
-        <Route path="/visits/enrol" element={<Guard><Enrol /></Guard>} />
-        <Route path="/visits/facility" element={<Guard><Facility /></Guard>} />
-        <Route path="/transport" element={<Guard><Transport /></Guard>} />
-        <Route path="/reports" element={<Guard><Reports /></Guard>} />
-        <Route path="/settings" element={<Guard><Settings /></Guard>} />
+        <Route element={<Layout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/patients" element={<Patients />} />
+          <Route path="/patients/:id" element={<Patient />} />
+          <Route path="/visits" element={<Visits />} />
+          <Route path="/visits/enrol" element={<Enrol />} />
+          <Route path="/visits/facility" element={<Facility />} />
+          <Route path="/transport" element={<Transport />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
         {/* The old addresses still resolve; a bookmark should not break. */}
         <Route path="/worklist" element={<Navigate to="/dashboard" replace />} />
         <Route path="/enrol" element={<Navigate to="/visits/enrol" replace />} />

@@ -14,7 +14,8 @@ from typing import Dict, List, Optional
 
 from ..data.foods import (AFFORDABILITY_CEILING, CHILD_MINIMUM, FOODS,
                           MDDW_MINIMUM, TIERS, group_labels, groups_for,
-                          GROUP_WHY, HYDRATION_NOTE, season_for, tier_for)
+                          GROUP_WHY, HYDRATION_NOTE, season_for, serves_region,
+                          tier_for)
 
 MDD_W = "mdd_w"
 MDD_CHILD = "mdd_child"
@@ -152,12 +153,10 @@ def _group_key_for(food, instrument: str) -> List[str]:
     return food["w_groups"] if instrument == MDD_W else food["c_groups"]
 
 
-def _available(food, month: int, region: str) -> bool:
+def _available(food, month: int, region: Optional[str]) -> bool:
     if month not in food["months"]:
         return False
-    if food["regions"] != "all" and region not in food["regions"]:
-        return False
-    return True
+    return serves_region(food, region)
 
 
 def _affordable(food, affordability: str, season: str) -> bool:
@@ -202,7 +201,7 @@ def _score_food(food, season: str, anaemia_focus: bool) -> float:
 def recommend(
     recall: Recall,
     *,
-    region: str = "Northern",
+    region: Optional[str] = None,
     month: Optional[int] = None,
     affordability: str = "low",
     taboos: Optional[List[str]] = None,
@@ -210,9 +209,14 @@ def recommend(
     exclude: Optional[List[str]] = None,
     recent_groups: Optional[List[str]] = None,
 ) -> Optional[Recommendation]:
-    """Pick one food that fills a gap and can actually be obtained."""
+    """Pick one food that fills a gap and can actually be obtained.
+
+    `region` has no default on purpose. A household whose region is not known
+    is offered only the foods sold and grown everywhere, with no seasonal
+    adjustment -- not another region's calendar and another region's foods.
+    """
     month = month or dt.date.today().month
-    season = season_for(month)
+    season = season_for(month, region)
     taboos = set(taboos or [])
     # Do not repeat last call's advice; a caregiver who hears the same
     # sentence every fortnight stops hearing it.
@@ -319,8 +323,8 @@ def recommend(
     alternatives = [food for _, food in options[1:3]]
     labels = group_labels(recall.instrument)
     reason = "{} missing; {} season in {}; {} costs {} now".format(
-        labels.get(group, group), season, region, best["name"].lower(),
-        tier_for(best, season))
+        labels.get(group, group), season, region or "unknown region",
+        best["name"].lower(), tier_for(best, season))
 
     tip = None
     if anaemia_focus:

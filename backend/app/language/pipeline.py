@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from ..models import Phrase
-from . import khaya, mms
+from . import khaya, mms, tekyerema
 from .catalogue import catalogue
 
 AUDIO_ROOT = Path(__file__).resolve().parents[2] / "audio"
@@ -75,7 +75,16 @@ def looks_like_audio(data: bytes):
 # against the live service: 100 characters succeeds, 120 returns HTTP 400.
 MAX_SPOKEN_CHARS = 100
 
-SPEAKABLE = ["dagbani", "kusaal", "frafra"]     # Khaya has models for these
+# audio_source values that mean "a model made this", as opposed to a person.
+# Anything here may be retired when the wording changes; "recorded" never is.
+SYNTHESISED_SOURCES = ("khaya_tts", "mms_tts", "tekyerema_tts")
+GENERATED_SOURCES = SYNTHESISED_SOURCES + ("shipped",)
+
+# Languages a translation service has a model for. Khaya covers dagbani, kusaal,
+# frafra, twi and ewe; our own Space covers dagbani, kusaal, twi, ewe and hausa.
+# Which of them can actually be reached right now depends on what is configured
+# -- see translation_routes().
+SPEAKABLE = ["dagbani", "kusaal", "frafra", "twi", "ewe", "hausa"]
 RECORD_ONLY = ["gonja"]                          # no model; human voice only
 ALL_LANGUAGES = SPEAKABLE + RECORD_ONLY
 
@@ -196,7 +205,7 @@ def sync_catalogue(db: Session, language: str) -> int:
             phrase.previous_text = phrase.translated_text
             phrase.source_text = row["text"]
             phrase.status = "stale"
-            if phrase.audio_source in ("khaya_tts", "mms_tts", "shipped"):
+            if phrase.audio_source in GENERATED_SOURCES:
                 # Move the file aside rather than only clearing the row. It used
                 # to be cleared and then re-adopted from disk by the call three
                 # lines below, in the same function, so the invalidation was a
@@ -259,30 +268,57 @@ def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
                          Phrase.status.in_(["pending", "failed", "stale"]))
                  .limit(limit).all())
 
+    routes = translation_routes(language)
+    if not routes:
+        # Said once, up front. Falling through to the loop marked every line
+        # "failed" with no error at all, which reads as a fault in the lines
+        # and not as a service that was never configured.
+        return {"language": language, "translated": 0, "failed": 0,
+                "note": "No translation service is configured for {}. Set "
+                        "TEKYEREMA_URL (our language service) to translate it, "
+                        "or record it by voice.".format(language)}
     translated, failed, errors = 0, 0, []
+    down = {}
     for phrase in pending:
-        result = khaya.translate(phrase.source_text, language)
-        if not result.ok:
+        accepted, last_error, outage = None, None, False
+        for route in routes:
+            if route in down:
+                last_error = last_error or down[route]
+                continue
+            provider = tekyerema if route == "tekyerema" else khaya
+            result = provider.translate(phrase.source_text, language)
+            if not result.ok:
+                last_error = result.error
+                # An outage or a quota applies to every remaining line. Stop
+                # asking that route for the rest of the batch -- a service that
+                # hangs for three minutes would otherwise do it once per line.
+                if result.error and any(k in result.error.lower() for k in
+                                        ("429", "reach", "unavailable", "quota")):
+                    down[route] = result.error
+                    outage = True
+                continue
+            problem = khaya.validate(phrase.source_text, result.text, language)
+            if problem:
+                last_error = "rejected: " + problem
+                outage = False
+                continue
+            accepted = (route, result)
+            break
+
+        if accepted is None:
             phrase.status = "failed"
-            phrase.error = result.error
+            phrase.error = last_error
             failed += 1
-            errors.append(result.error)
-            # A rate limit or a dead service will fail every remaining phrase
-            # identically; stop rather than hammer it.
-            if result.error and ("429" in result.error or "reach" in result.error):
+            errors.append(last_error)
+            # Every route is down: the remaining lines will fail identically.
+            if outage and len(down) == len(routes):
                 break
             continue
 
-        problem = khaya.validate(phrase.source_text, result.text, language)
-        if problem:
-            phrase.status = "failed"
-            phrase.error = "rejected: " + problem
-            failed += 1
-            continue
-
+        route, result = accepted
         phrase.translated_text = result.text
         phrase.status = "translated"
-        phrase.provider = "khaya"
+        phrase.provider = route
         phrase.error = None
         translated += 1
 
@@ -294,14 +330,31 @@ def translate_pending(db: Session, language: str, limit: int = 200) -> Dict:
                 Phrase.status.in_(["pending", "failed", "stale"])).count()}
 
 
+def translation_routes(language: str) -> List[str]:
+    """Which services can translate into this language, best first.
+
+    Our own Space first when it is configured and has a model for the
+    language; Khaya behind it for the languages Khaya covers.
+    """
+    routes = []
+    if tekyerema.configured() and tekyerema.supports(language):
+        routes.append("tekyerema")
+    if khaya.KHAYA_CODE.get(language):
+        routes.append("khaya")
+    return routes
+
+
 def providers_for(language: str) -> List[str]:
     """Which synthesis routes exist for this language, best first.
 
-    Khaya first where it has a model: the voice is better. MMS second because
-    it runs here, needs no credits and cannot be rate-limited. A human recording
-    always outranks both and is never overwritten.
+    Our own Space first where it is configured and has a voice: no quota, and
+    no upstream we cannot fix. Khaya next, where it has a model. MMS after that
+    because it runs here, needs no credits and cannot be rate-limited. A human
+    recording always outranks all of them and is never overwritten.
     """
     routes = []
+    if tekyerema.configured() and tekyerema.supports(language):
+        routes.append("tekyerema")
     if khaya.KHAYA_CODE.get(language):
         routes.append("khaya")
     if mms.available_for(language):
@@ -362,7 +415,10 @@ def speak_translated(db: Session, language: str, limit: int = 200) -> Dict:
         # written onto phrases that had never been sent to any provider.
         last_error = None
         for route in usable:
-            if route == "khaya":
+            if route == "tekyerema":
+                result = tekyerema.synthesise(phrase.translated_text, language)
+                ok, audio, error = result.ok, result.audio, result.error
+            elif route == "khaya":
                 result = khaya.synthesise(phrase.translated_text, language)
                 ok, audio, error = result.ok, result.audio, result.error
             else:
@@ -514,7 +570,8 @@ def status(db: Session, language: str) -> Dict:
         "recorded_by_human": recorded,
         "synthesised": with_audio - recorded,
         "needs_recording": total - with_audio,
-        "can_translate": language in SPEAKABLE,
+        # SPEAKABLE says a model exists somewhere; routes says one is reachable.
+        "can_translate": bool(translation_routes(language)),
         "note": khaya.UNSUPPORTED_NOTE if language in RECORD_ONLY else None,
         # Two numbers, because one was misleading. spoken_coverage counts every
         # line in the catalogue equally, including thirty-four food messages of
@@ -530,6 +587,7 @@ def status(db: Session, language: str) -> Dict:
                           if core else 0.0),
         "too_long": too_long_to_speak(db, language),
         "routes": providers_for(language),
+        "translate_routes": translation_routes(language),
         "mms": mms.describe() if mms.available_for(language) else None,
     }
 

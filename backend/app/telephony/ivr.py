@@ -673,7 +673,7 @@ def _nutrition_message(db: Session, session: CallSession):
 
     rec = recommend(
         recall,
-        region=(patient.region if patient else "Northern"),
+        region=(patient.region if patient else None),
         month=dt.date.today().month,
         affordability=(patient.affordability if patient else "low"),
         taboos=(patient.taboos if patient else []) or [],

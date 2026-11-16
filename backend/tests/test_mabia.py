@@ -210,8 +210,8 @@ def test_a_taboo_substitutes_within_the_same_food_group():
     gap = Recall.from_complete(MDD_W, ["grains", "pulses", "nuts_seeds", "dairy", "flesh",
                          "eggs", "other_veg", "other_fruit", "vita_fruit_veg"])
     assert gap.missing == ["dark_leafy"]
-    first = recommend(gap, month=7, affordability="low")
-    second = recommend(gap, month=7, affordability="low",
+    first = recommend(gap, region="Northern", month=7, affordability="low")
+    second = recommend(gap, region="Northern", month=7, affordability="low",
                        taboos=[first.food["key"]])
     assert second.food["key"] != first.food["key"]
     assert "dark_leafy" in second.food["w_groups"]
@@ -222,14 +222,14 @@ def test_affordability_never_recommends_what_she_cannot_buy():
                          "dark_leafy", "vita_fruit_veg", "other_veg",
                          "other_fruit"])
     assert gap.missing == ["flesh"]
-    low = recommend(gap, month=7, affordability="low")
+    low = recommend(gap, region="Northern", month=7, affordability="low")
     assert low.food["tier"] in ("free", "low")
 
 
 def test_a_full_diet_is_told_so():
     every = [g for g in Recall.from_complete(MDD_W, []).missing]
     full = Recall(MDD_W, every)
-    rec = recommend(full, month=7)
+    rec = recommend(full, region="Northern", month=7)
     assert rec.food is None
     assert "every food group" in rec.message
 
@@ -485,7 +485,8 @@ def test_sync_push_is_safe_to_repeat(client, auth, db):
 
 def test_enrolment_twice_offline_creates_one_patient(client, auth, db):
     body = {"name": "Test Duplicate", "phone": "+233240000777",
-            "community": "Kpale", "consent": True, "event_id": "enrol-dup-1",
+            "community": "Kpale", "region": "Northern", "consent": True,
+            "event_id": "enrol-dup-1",
             "edd": (dt.date.today() + dt.timedelta(days=100)).isoformat()}
     client.post("/api/patients", headers=auth, json=body)
     count = db.query(Patient).filter(Patient.phone == "+233240000777").count()

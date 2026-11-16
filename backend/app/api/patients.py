@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import events as ev
 from .. import services
+from ..data.foods import REGION_ZONES
 from ..db import get_db
 from ..models import Child, Emergency, Event, Patient, PatientState, User
 from ..security import current_user
@@ -25,7 +26,10 @@ class EnrolIn(BaseModel):
     secondary_phone: Optional[str] = Field(default=None, max_length=20)
     language: str = "dagbani"
     community: str = Field(max_length=80)
-    region: str = "Northern"
+    # Required, with no default. Her region decides which calendar and which
+    # foods her advice comes from, and a silent default meant a household in
+    # the south was advised from the north without anything saying so.
+    region: str
     lmp: Optional[dt.date] = None
     edd: Optional[dt.date] = None
     # Constrained, not free text. "Medium" and "moderate" both stored happily
@@ -49,6 +53,15 @@ class EnrolIn(BaseModel):
     danger_signs: List[str] = []
     event_id: Optional[str] = None      # client-generated: makes retries safe
     device_id: str = "web"
+
+    @field_validator("region")
+    @classmethod
+    def _known_region(cls, value):
+        if value not in REGION_ZONES:
+            raise ValueError(
+                "region must be one of Ghana's sixteen regions: "
+                + ", ".join(REGION_ZONES) + ".")
+        return value
 
     @field_validator("phone", "secondary_phone")
     @classmethod

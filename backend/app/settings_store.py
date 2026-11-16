@@ -70,7 +70,7 @@ SCHEMA = {
         "The handset you want to receive test calls and messages on, e.g. +233XXXXXXXXX."),
     "default_language": (
         "dagbani", False, "Default language",
-        "dagbani, kusaal, frafra, gonja or english."),
+        "dagbani, kusaal, frafra, gonja, twi, ewe, hausa or english."),
     "hotline_number": (
         "", False, "Hotline number",
         "The number caregivers ring and hang up on. The platform calls them back, "

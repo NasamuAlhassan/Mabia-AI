@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..language import khaya, pipeline
+from ..language import khaya, pipeline, tekyerema
 from ..models import Phrase, User
 from ..security import current_user
 
@@ -41,6 +41,7 @@ def status(db: Session = Depends(get_db), user: User = Depends(current_user)):
         "khaya_configured": khaya.configured(),
         "khaya_reachable": ok,
         "khaya_languages": languages,
+        "tekyerema": tekyerema.health(),
         "languages": [pipeline.status(db, l) for l in pipeline.ALL_LANGUAGES],
     }
 
@@ -115,7 +116,7 @@ def edit(phrase_id: str, body: EditIn, db: Session = Depends(get_db),
     # catalogue sync re-adopted the file as "shipped". That is the bug the
     # pipeline fixed for stale translations and this sibling endpoint kept.
     # mms_tts was not covered at all.
-    if phrase.audio_source in ("khaya_tts", "mms_tts"):
+    if phrase.audio_source in pipeline.SYNTHESISED_SOURCES:
         pipeline._retire_audio(phrase)
         phrase.audio_path = None
         phrase.audio_source = None
@@ -194,7 +195,16 @@ def preview(text: str, language: str, db: Session = Depends(get_db),
             user: User = Depends(current_user)):
     known_language(language)
     """Translate an arbitrary line — used to check the pipeline is live."""
-    result = khaya.translate(text, language)
+    routes = pipeline.translation_routes(language)
+    if not routes:
+        return {"ok": False, "error": khaya.UNSUPPORTED_NOTE}
+    # First route that answers, in the same order the pipeline uses.
+    result = None
+    for route in routes:
+        provider = tekyerema if route == "tekyerema" else khaya
+        result = provider.translate(text, language)
+        if result.ok:
+            break
     if not result.ok:
         return {"ok": False, "error": result.error}
     problem = khaya.validate(text, result.text, language)

@@ -36,6 +36,12 @@ services:
       # what the live deployment is doing today.
       - key: GHANANLP_API_KEY
         sync: false
+      # Our own language service, a Hugging Face Space. Not a secret -- it is a
+      # public address and takes no key -- so the value lives here and survives
+      # a deploy. It is the first route for translation and speech; Khaya stays
+      # behind it as a fallback. Unset, nothing changes.
+      - key: TEKYEREMA_URL
+        value: https://princealhassannasamu-tekyerema-lang.hf.space
       # Telephony. Absent, calls are simulator-only -- enough to demonstrate
       # the whole flow, not enough to reach a real handset.
       #

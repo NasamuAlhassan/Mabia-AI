@@ -15,6 +15,7 @@ from sqlalchemy import (JSON, Boolean, Column, Date, DateTime, Float, ForeignKey
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import relationship
 
+from .data.foods import UNKNOWN_REGION
 from .db import Base
 from .ids import uuid7
 
@@ -120,7 +121,9 @@ class Patient(Base):
     secondary_phone = Column(String)
     language = Column(String, default="dagbani")
     community = Column(String, nullable=False)
-    region = Column(String, nullable=False, default="Northern")
+    # Never defaulted to a real region: an unknown one is stored as "Unknown"
+    # and gets only nationally available foods, not another region's advice.
+    region = Column(String, nullable=False, default=UNKNOWN_REGION)
     lmp = Column(Date)
     edd = Column(Date)
     affordability = Column(String, default="low")   # low | medium

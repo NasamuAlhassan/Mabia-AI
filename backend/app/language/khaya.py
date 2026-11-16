@@ -40,6 +40,8 @@ KHAYA_CODE = {
     "dagbani": "dag",
     "kusaal": "kus",
     "frafra": "gur",
+    "twi": "twi",
+    "ewe": "ewe",
     "gonja": None,      # no model exists; must be recorded
     "english": "eng",
 }

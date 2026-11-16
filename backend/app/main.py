@@ -11,7 +11,7 @@ from .db import Base, engine
 
 app = FastAPI(title="Mabia AI", version="2.0.0",
               description="CHPS emergency response, voice outreach and "
-                          "nutrition coordination for Northern Ghana.")
+                          "nutrition coordination for Ghana.")
 
 # allow_credentials must stay False while allow_origins can be "*": browsers
 # reject that combination outright, and the web app would fail every request

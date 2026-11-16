@@ -9,9 +9,9 @@
 
 An offline-first voice platform that calls pregnant women and caregivers in their own language over plain GSM — triaging danger signs, measuring dietary diversity, and dispatching community transport — so that silence is never mistaken for safety.
 
-Built for the **UNICEF StartUp Lab · AI for Nurturing Care Hackathon 2026**, for the Northern, North East, Savannah, Upper East and Upper West Regions of Ghana.
+Built for the **UNICEF StartUp Lab · AI for Nurturing Care Hackathon 2026**. It began in the Northern, North East, Savannah, Upper East and Upper West Regions, and is now built for all sixteen regions of Ghana — see [Going national](#going-national) for what that does and does not yet cover.
 
-> **Mabia** is the name of the language family spoken across most of Northern Ghana — Dagbani, Kusaal, Frafra and their siblings. It means *mother's child*, from **ma** (mother) and **bia** (child).
+> **Mabia** is the name of the language family spoken across most of Northern Ghana — Dagbani, Kusaal, Frafra and their siblings, where this started. It means *mother's child*, from **ma** (mother) and **bia** (child). The name stays; the reach is wider than the family.
 
 **Live** → [mabia-ai.vercel.app](https://mabia-ai.vercel.app) · sign in with `+233200000001` / `1234`
 
@@ -104,7 +104,8 @@ Root directory `backend`, from `render.yaml`:
 | `PYTHON_VERSION` | `3.11` | |
 | `DATABASE_URL` | Postgres | Set on the live deployment. Unset falls back to SQLite on the service's disk. See the note below. |
 | `CRON_TOKEN` | generated | Lets the scheduled workflows call `run-due` and `run-callbacks` without a user session. Nothing else accepts it. |
-| `GHANANLP_API_KEY` | *set in the dashboard* | Khaya translation and speech. Absent, the Voice screen reports Khaya as unconfigured and the platform runs on whatever audio is already recorded. |
+| `TEKYEREMA_URL` | `https://princealhassannasamu-tekyerema-lang.hf.space` | Our own language service, a Hugging Face Space: translation and speech for Dagbani and Kusaal (and Twi, Ewe and Hausa). No key. Tried **before** Khaya. Unset, nothing changes. Only fixed catalogue sentences are ever sent to it — never anything about a patient. |
+| `GHANANLP_API_KEY` | *set in the dashboard* | Khaya translation and speech, now the fallback behind Tɛkyerɛma, and the only route for Frafra. Absent, the Voice screen reports Khaya as unconfigured and the platform runs on whatever audio is already recorded. |
 | `TELEPHONY_PROVIDER` | `africastalking` | `simulator` runs the whole flow on screen with no account at all. |
 | `AT_ENVIRONMENT` | `sandbox` or `live` | Two different hosts *and* two different usernames — in sandbox the username is literally `sandbox`. Mismatching them is a guaranteed 401, and the Setup screen now says so rather than showing green. |
 | `AT_USERNAME` / `AT_API_KEY` | *set in the dashboard* | Africa's Talking. Absent, calls are simulator-only. |
@@ -119,6 +120,34 @@ The credential rows are declared in `render.yaml` with `sync: false`, so Render 
 **On the scheduler:** it is not a Render cron. Render has no free plan for cron services, and a blueprint declaring one fails validation — which rejects the *whole file*, silently, so the service stops taking new deploys and keeps serving the last good build. It lives in `.github/workflows/` instead: `outreach.yml` places the day's due calls each morning, `callbacks.yml` drains the hotline queue every ten minutes so a missed call at two in the morning is not answered next morning. Both need `CRON_TOKEN` as a repository secret.
 
 **Two things that will bite if you change them.** `allow_credentials` must stay `False` while `allow_origins` can be `*` — browsers reject that combination outright and every request fails with an opaque CORS error. And `DATABASE_URL` pointing at Postgres without `psycopg2` installed gives a `ModuleNotFoundError` several frames inside SQLAlchemy; `config.py` now catches that at startup and says what to do.
+
+---
+
+## Going national
+
+Two things in the platform only made sense in the north, and both are fixed:
+
+- **Regions.** All sixteen are selectable, validated on the server, and defined once in `backend/app/data/foods.py` (the offline form carries a copy, and a test fails if the two differ). There is no default region any more: enrolment requires one, and a queued enrolment that arrives without one is kept as **Unknown** rather than being quietly filed as Northern.
+- **Seasons.** The north has one rainy season; everywhere south of the savanna belt has two. A household's advice now follows its own region's calendar — lean season is May–August in the north and April–June in the south — instead of the northern one for everybody. A household whose region is unknown gets no seasonal adjustment and only the foods sold and grown everywhere.
+
+**What is not done, plainly.** The nutrition calendar for the south is a first approximation, and the region-to-zone assignments (Oti and Bono East especially) have not been checked by anyone who works those regions. And **the southern food table is not written**: every food was built for the north, the northern-only ones are now tagged and never offered elsewhere, but nothing replaces them — plantain, cocoyam leaves, palm nut, year-round fish and the rest. Until it exists a southern household has fewer foods to be advised from, and a gap with nothing to fill it ends in "this needs a home visit". `GET /api/nutrition/foods?region=…` reports exactly which food groups that affects. That is nutrition content for whoever owns the food model, not something to guess.
+
+The call prompts themselves still ask about northern foods by name (*tuo zaafi*, *ayoyo*, *baobab leaf*), and rewording them would invalidate their translations, so they are unchanged for now.
+
+### The language layer
+
+Translation and speech go through **Tɛkyerɛma**, our own Hugging Face Space (`PrinceAlhassanNasamu/tekyerema-lang`), first; Khaya is the fallback and MMS the local last resort. A human recording still outranks all of them and is never overwritten.
+
+| | Tɛkyerɛma | Khaya | MMS |
+|---|---|---|---|
+| Dagbani, Kusaal | translate + speak | translate | Kusaal speak |
+| Frafra | — | translate | — |
+| Gonja | — | — | — (human voice only) |
+| Twi, Ewe, Hausa | translate + speak | Twi, Ewe | — |
+
+The Space is opt-in (`TEKYEREMA_URL`), so a laptop or a test run never reaches out by accident. **Twi, Ewe and Hausa are now product languages** on the backend: they have catalogue rows, can be translated and spoken through the Space, and a caller with no audio yet hears spoken English as before. Hausa has no route at all without the Space, and says so rather than marking every line failed. The language pickers in the web app (enrolment, Setup, Voice) still need the three added. Speech *recognition* is available in the Space and is deliberately not wired — it would send a caller's voice to a third-party host, which is a consent decision before it is a plumbing one.
+
+A service being ours does not make its output right. A probe left an English word in a Twi sentence. Everything it returns goes through the same validation as Khaya's, and a speaker still has to read it before it is trusted with a patient.
 
 ---
 

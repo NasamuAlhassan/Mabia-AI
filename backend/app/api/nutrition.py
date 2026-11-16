@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .. import events as ev
-from ..data.foods import CHILD_GROUPS, FOODS, MDDW_GROUPS, season_for
+from ..data.foods import (CHILD_GROUPS, FOODS, MDDW_GROUPS, REGION_ZONES,
+                          season_for, serves_region, uncovered_groups, zone_for)
 from ..db import get_db
 from ..engines.nutrition import MDD_CHILD, MDD_W, Recall, questions, recommend
 from ..models import Patient, User
@@ -33,13 +34,19 @@ def instruments():
     }
 
 
+@router.get("/regions")
+def regions():
+    """Every region, and the rainfall regime its season calendar follows."""
+    return [{"name": name, "zone": zone} for name, zone in REGION_ZONES.items()]
+
+
 @router.get("/foods")
-def food_table(month: Optional[int] = None, region: str = "Northern"):
+def food_table(month: Optional[int] = None, region: Optional[str] = None):
     month = month or dt.date.today().month
     rows = []
     for food in FOODS:
-        available = month in food["months"] and (
-            food["regions"] == "all" or region in food["regions"])
+        available = (month in food["months"]
+                     and serves_region(food, region))
         rows.append({"key": food["key"], "name": food["name"],
                      "tier": food["tier"], "source": food["source"],
                      "groups_women": food["w_groups"],
@@ -48,7 +55,14 @@ def food_table(month: Optional[int] = None, region: str = "Northern"):
                      "vitamin_c": food["vitamin_c"],
                      "local_names": food["local_names"],
                      "available_now": available, "message": food["message"]})
-    return {"month": month, "region": region, "season": season_for(month),
+    return {"month": month, "region": region,
+            "season": season_for(month, region),
+            "zone": zone_for(region),
+            # Groups no food here can fill in any month -- where the table is
+            # thin, and so where a gap can only end in a home visit.
+            "uncovered_groups": {
+                "mdd_w": uncovered_groups(MDD_W, region),
+                "mdd_child": uncovered_groups(MDD_CHILD, region)},
             "foods": rows}
 
 
@@ -105,7 +119,7 @@ def assess(body: RecallIn, db: Session = Depends(get_db),
         recall = Recall(body.instrument, body.present)
     rec = recommend(
         recall,
-        region=body.region or (patient.region if patient else "Northern"),
+        region=body.region or (patient.region if patient else None),
         month=body.month,
         affordability=body.affordability or (patient.affordability if patient else "low"),
         taboos=body.taboos or ((patient.taboos if patient else []) or []),

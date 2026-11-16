@@ -15,7 +15,8 @@ served publicly so Africa's Talking can fetch them. Where a clip is missing the
 engine falls back to spoken English, so the flow is always testable.
 """
 
-LANGUAGES = ["dagbani", "kusaal", "frafra", "gonja", "english"]
+LANGUAGES = ["dagbani", "kusaal", "frafra", "gonja", "twi", "ewe", "hausa",
+             "english"]
 
 # --- danger signs asked on every call ---------------------------------------
 # Five questions, single keypress each. These are the ones where waiting for a

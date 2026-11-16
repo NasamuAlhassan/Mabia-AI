@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import events as ev
+from ..data.foods import REGION_ZONES, UNKNOWN_REGION
 from ..db import get_db
 from ..models import Event, Patient, User
 from ..security import current_user
@@ -78,7 +79,12 @@ def _materialise_enrolment(db: Session, item, user: User) -> Optional[str]:
         secondary_phone=body.get("secondary_phone") or None,
         language=body.get("language") or "dagbani",
         community=body.get("community") or (user.community or "Unknown"),
-        region=body.get("region") or "Northern",
+        # Not "Northern". A queued enrolment is a household that cannot be
+        # asked again, so one without a usable region is kept -- but as
+        # Unknown, which gets only nationally available foods and no seasonal
+        # shift, rather than as a northern household it may not be.
+        region=(body.get("region") if body.get("region") in REGION_ZONES
+                else UNKNOWN_REGION),
         edd=edd,
         affordability=body.get("affordability") or "low",
         taboos=body.get("taboos") or [],

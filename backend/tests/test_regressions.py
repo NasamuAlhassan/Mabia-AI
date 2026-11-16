@@ -258,7 +258,8 @@ def test_pushing_the_same_offline_enrolment_twice_creates_one_woman(db, client, 
 
 def test_enrolling_the_same_woman_twice_online_creates_one_patient(db, client, auth):
     body = {"name": "Retry Woman", "phone": "+233240000913",
-            "community": "Kpale", "consent": True, "event_id": "enrol-retry-9",
+            "community": "Kpale", "region": "Northern", "consent": True,
+            "event_id": "enrol-retry-9",
             "edd": (dt.date.today() + dt.timedelta(days=120)).isoformat()}
     for _ in range(3):
         client.post("/api/patients", headers=auth, json=body)
@@ -495,7 +496,7 @@ def test_the_funnel_reports_every_stage_of_the_three_delays(db, client, auth):
 def test_geography_is_actually_collected_at_enrolment(db, client, auth):
     """The rule that reads these fields was dead code once already."""
     body = {"name": "Far Woman", "phone": "+233240000922", "community": "Kpale",
-            "consent": True, "minutes_to_facility": 120, "road_condition": "poor",
+            "region": "Northern", "consent": True, "minutes_to_facility": 120, "road_condition": "poor",
             "edd": (dt.date.today() + dt.timedelta(days=60)).isoformat()}
     out = client.post("/api/patients", headers=auth, json=body).json()
     assert out["minutes_to_facility"] == 120
@@ -549,11 +550,14 @@ def test_care_received_clears_the_sign_but_not_reaching_care_does_not(db, client
 
 @pytest.mark.parametrize("payload,expected", [
     ({}, 422),
-    ({"name": "X", "phone": "+233240000441", "community": "K", "consent": False}, 400),
-    ({"name": "a" * 500, "phone": "+233240000442", "community": "K", "consent": True}, 422),
-    ({"name": "X", "phone": "not-a-number", "community": "K", "consent": True}, 422),
-    ({"name": "X", "phone": "+233240000443", "community": "K", "consent": True,
-      "minutes_to_facility": -5}, 422),
+    ({"name": "X", "phone": "+233240000441", "community": "K", "region": "Northern",
+      "consent": False}, 400),
+    ({"name": "a" * 500, "phone": "+233240000442", "community": "K", "region": "Northern",
+      "consent": True}, 422),
+    ({"name": "X", "phone": "not-a-number", "community": "K", "region": "Northern",
+      "consent": True}, 422),
+    ({"name": "X", "phone": "+233240000443", "community": "K", "region": "Northern",
+      "consent": True, "minutes_to_facility": -5}, 422),
 ])
 def test_enrolment_refuses_nonsense(client, auth, payload, expected):
     assert client.post("/api/patients", headers=auth, json=payload).status_code == expected
@@ -1134,7 +1138,7 @@ def test_a_child_who_stopped_breastfeeding_is_not_congratulated(db):
     recall = Recall.from_complete(MDD_CHILD, ["grains", "pulses_nuts_seeds", "dairy",
                                 "flesh", "eggs"])
     assert recall.meets_minimum is True
-    rec = recommend(recall, month=7)
+    rec = recommend(recall, region="Northern", month=7)
     assert rec.group == "breastmilk"
     assert "breast milk" in rec.message.lower()
     assert "varied enough" not in rec.message
@@ -1799,7 +1803,7 @@ def test_the_clinically_important_gap_is_filled_before_the_trivial_one(db):
     recall = Recall.from_complete(MDD_W, present)
     assert set(recall.missing) == {"flesh", "dark_leafy", "other_fruit"}
 
-    rec = recommend(recall, month=7, affordability="low")
+    rec = recommend(recall, region="Northern", month=7, affordability="low")
     assert rec.group in ("flesh", "dark_leafy"), \
         "filled the trivial gap first: chose {}".format(rec.group)
 
@@ -2143,7 +2147,7 @@ def test_an_added_column_gets_the_default_the_models_promise(tmp_path):
 
     with engine.begin() as c:
         region = c.execute(text("SELECT region FROM patients")).scalar()
-    assert region == "Northern", \
+    assert region == "Unknown", \
         "existing row holds {!r} in a column the models say is never null".format(
             region)
     assert any("backfilled" in a for a in added), \
@@ -2228,7 +2232,7 @@ def test_a_question_she_never_answered_is_not_a_measured_gap(db):
                     ["dark_leafy", "vita_fruit_veg"])
     assert "dark_leafy" not in recall.missing
     assert "dark_leafy" in recall.unknown
-    rec = recommend(recall, month=7)
+    rec = recommend(recall, region="Northern", month=7)
     assert rec.group not in ("dark_leafy", "vita_fruit_veg"), \
         "advised on a food group she was never asked about"
 
@@ -2978,7 +2982,7 @@ def test_a_woman_is_not_told_to_give_her_own_missing_food_to_the_child(db):
     offenders = []
     for keep in range(len(groups_for(MDD_W))):
         recall = Recall.from_complete(MDD_W, groups_for(MDD_W)[:keep])
-        rec = recommend(recall, month=7, affordability="high")
+        rec = recommend(recall, region="Northern", month=7, affordability="high")
         if rec.food is None:
             continue
         lowered = rec.message.lower()
@@ -2989,7 +2993,7 @@ def test_a_woman_is_not_told_to_give_her_own_missing_food_to_the_child(db):
     # And the caregiver wording is still there for the child instrument --
     # unchanged, so its Dagbani translation is not thrown away.
     child = recommend(Recall.from_complete(MDD_CHILD, ["breastmilk", "grains"]),
-                      month=7, affordability="high")
+                      region="Northern", month=7, affordability="high")
     assert child.food is not None
     assert child.message == child.food["message"]
 
@@ -3018,13 +3022,13 @@ def test_partial_praise_is_distinct_from_full_praise(db):
                              "dark_leafy"],
                      ["nuts_seeds", "vita_fruit_veg", "other_veg", "other_fruit"])
     assert partial.missing == []
-    message = recommend(partial, month=7).message
+    message = recommend(partial, region="Northern", month=7).message
     assert "covered every food group" not in message, \
         "congratulated on four questions that were never answered"
     assert "answered about" in message
 
     complete = Recall.from_complete(MDD_W, list(partial.present) + partial.unknown)
-    assert "covered every food group" in recommend(complete, month=7).message
+    assert "covered every food group" in recommend(complete, region="Northern", month=7).message
 
 
 def test_the_minimum_itself_still_earns_partial_praise(db):
@@ -3035,7 +3039,7 @@ def test_the_minimum_itself_still_earns_partial_praise(db):
                         ["nuts_seeds", "dark_leafy", "vita_fruit_veg",
                          "other_veg", "other_fruit"])
     assert at_minimum.score == 5 and at_minimum.meets_minimum
-    message = recommend(at_minimum, month=7).message
+    message = recommend(at_minimum, region="Northern", month=7).message
     assert "could not get through" not in message, \
         "told we failed to measure her, having met the minimum"
     assert "answered about" in message
@@ -3187,7 +3191,7 @@ def test_saying_a_group_was_not_eaten_still_makes_it_a_gap(db):
                     denied=["flesh", "dark_leafy"])
     assert set(recall.missing) == {"flesh", "dark_leafy"}
     assert recall.meets_minimum
-    rec = recommend(recall, month=7, affordability="low")
+    rec = recommend(recall, region="Northern", month=7, affordability="low")
     assert rec.group in ("flesh", "dark_leafy"), \
         "an explicitly denied group produced no advice"
 
@@ -3980,9 +3984,13 @@ def test_an_emergency_that_stops_moving_is_noticed(db):
 
     after = db.query(Message).filter(Message.patient_id == patient.id).count()
     assert after > before
-    body = (db.query(Message).filter(Message.patient_id == patient.id)
-              .order_by(Message.created_at.desc()).first().body)
-    assert "STILL OPEN" in body and "5 hours" in body
+    # Any message, not "the newest": the original alert and the reminder are
+    # written within the same few milliseconds, and on a coarse clock their
+    # timestamps tie -- so "newest first" picked the alert about one run in
+    # eight and failed a correct implementation.
+    bodies = [m.body for m in db.query(Message).filter(
+        Message.patient_id == patient.id).all()]
+    assert any("STILL OPEN" in b and "5 hours" in b for b in bodies), bodies
 
     # And it does not nag on every tick.
     assert services.nudge_stale_emergencies(db)["nudged"] == 0
